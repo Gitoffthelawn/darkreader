@@ -1,11 +1,12 @@
+import type {Theme, StaticTheme} from '../definitions';
+import {parseArray, formatArray} from '../utils/text';
+import {compareURLPatterns, isURLInList} from '../utils/url';
+
 import {createTextStyle} from './text-style';
 import {formatSitesFixesConfig} from './utils/format';
 import {applyColorMatrix, createFilterMatrix} from './utils/matrix';
 import {parseSitesFixesConfig, getSitesFixesFor} from './utils/parse';
 import type {SitePropsIndex} from './utils/parse';
-import {parseArray, formatArray} from '../utils/text';
-import {compareURLPatterns, isURLInList} from '../utils/url';
-import type {FilterConfig, StaticTheme} from '../definitions';
 
 interface ThemeColors {
     [prop: string]: number[];
@@ -47,18 +48,18 @@ const lightTheme: ThemeColors = {
     fadeText: [0, 0, 0, 0.5],
 };
 
-function rgb([r, g, b, a]: number[]) {
+function rgb([r, g, b, a]: number[]): string {
     if (typeof a === 'number') {
         return `rgba(${r}, ${g}, ${b}, ${a})`;
     }
     return `rgb(${r}, ${g}, ${b})`;
 }
 
-function mix(color1: number[], color2: number[], t: number) {
+function mix(color1: number[], color2: number[], t: number): number[] {
     return color1.map((c, i) => Math.round(c * (1 - t) + color2[i] * t));
 }
 
-export default function createStaticStylesheet(config: FilterConfig, url: string, isTopFrame: boolean, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>) {
+export default function createStaticStylesheet(config: Theme, url: string, isTopFrame: boolean, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>): string {
     const srcTheme = config.mode === 1 ? darkTheme : lightTheme;
     const theme = Object.entries(srcTheme).reduce((t, [prop, color]) => {
         const [r, g, b, a] = color;
@@ -212,7 +213,7 @@ const staticThemeCommands: { [key: string]: keyof StaticTheme } = {
     'INVERT': 'invert',
 };
 
-export function parseStaticThemes($themes: string) {
+export function parseStaticThemes($themes: string): StaticTheme[] {
     return parseSitesFixesConfig<StaticTheme>($themes, {
         commands: Object.keys(staticThemeCommands),
         getCommandPropName: (command) => staticThemeCommands[command],
@@ -221,15 +222,15 @@ export function parseStaticThemes($themes: string) {
                 return true;
             }
             return parseArray(value);
-        }
+        },
     });
 }
 
-function camelCaseToUpperCase(text: string) {
+function camelCaseToUpperCase(text: string): string {
     return text.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 }
 
-export function formatStaticThemes(staticThemes: StaticTheme[]) {
+export function formatStaticThemes(staticThemes: StaticTheme[]): string {
     const themes = staticThemes.slice().sort((a, b) => compareURLPatterns(a.url[0], b.url[0]));
 
     return formatSitesFixesConfig(themes, {
@@ -246,7 +247,7 @@ export function formatStaticThemes(staticThemes: StaticTheme[]) {
                 return !value;
             }
             return !(Array.isArray(value) && value.length > 0);
-        }
+        },
     });
 }
 
@@ -256,7 +257,7 @@ function getCommonTheme(staticThemes: string, staticThemesIndex: SitePropsIndex<
     return parseStaticThemes(staticThemeText)[0];
 }
 
-function getThemeFor(url: string, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>) {
+function getThemeFor(url: string, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>): Readonly<StaticTheme> | null {
     const themes = getSitesFixesFor<StaticTheme>(url, staticThemes, staticThemesIndex, {
         commands: Object.keys(staticThemeCommands),
         getCommandPropName: (command) => staticThemeCommands[command],
@@ -265,14 +266,14 @@ function getThemeFor(url: string, staticThemes: string, staticThemesIndex: SiteP
                 return true;
             }
             return parseArray(value);
-        }
+        },
     });
     const sortedBySpecificity = themes
         .slice(1)
         .map((theme) => {
             return {
                 specificity: isURLInList(url, theme.url) ? theme.url[0].length : 0,
-                theme
+                theme,
             };
         })
         .filter(({specificity}) => specificity > 0)

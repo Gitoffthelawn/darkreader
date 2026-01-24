@@ -22,7 +22,7 @@ async function loadBasicPage() {
 }
 
 async function expectStyles(styles: StyleExpectations) {
-    expectPageStyles(expect, styles);
+    await expectPageStyles(expect, styles);
 }
 
 describe('Modifying config via Developer tools', () => {
@@ -45,16 +45,20 @@ describe('Modifying config via Developer tools', () => {
             '*',
             '',
             'CSS',
-            'bachground: black',
-            'color: white',
+            'h1 {',
+            '    background: black;',
+            '    color: white;',
+            '}',
             '',
             '============================',
             '',
             'nonexistent.com',
             '',
             'CSS',
-            'color: red',
-            ''
+            'h1 {',
+            '    color: red;',
+            '}',
+            '',
         ].join('\n'));
 
         await expectStyles([
@@ -62,8 +66,9 @@ describe('Modifying config via Developer tools', () => {
             ['document', 'color', 'rgb(232, 230, 227)'],
             ['body', 'background-color', 'rgb(24, 26, 27)'],
             ['body', 'color', 'rgb(232, 230, 227)'],
-            ['h1', 'color', 'rgb(255, 26, 26)'],
-            ['a', 'color', 'rgb(51, 145, 255)']
+            ['h1', 'background-color', 'rgb(0, 0, 0)'],
+            ['h1', 'color', 'rgb(255, 255, 255)'],
+            ['a', 'color', 'rgb(51, 145, 255)'],
         ]);
 
         await devtoolsUtils.reset();
@@ -74,7 +79,7 @@ describe('Modifying config via Developer tools', () => {
             ['body', 'background-color', 'rgb(24, 26, 27)'],
             ['body', 'color', 'rgb(232, 230, 227)'],
             ['h1', 'color', 'rgb(255, 26, 26)'],
-            ['a', 'color', 'rgb(51, 145, 255)']
+            ['a', 'color', 'rgb(51, 145, 255)'],
         ]);
     });
 });

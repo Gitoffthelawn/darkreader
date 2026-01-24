@@ -1,7 +1,9 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
+
 import {parseColorWithCache} from '../../../utils/color';
 import TextBox from '../textbox';
+
 import HSBPicker from './hsb-picker';
 
 interface ColorPickerProps {
@@ -10,6 +12,12 @@ interface ColorPickerProps {
     onChange: (color: string) => void;
     canReset: boolean;
     onReset: () => void;
+}
+
+interface ColorPickerStore {
+    isFocused: boolean;
+    textBoxNode: HTMLInputElement;
+    previewNode: HTMLElement;
 }
 
 function isValidColor(color: string) {
@@ -26,7 +34,7 @@ function focusColorPicker(node: Node) {
 function ColorPicker(props: ColorPickerProps) {
     const context = getContext();
     context.onRender((node) => colorPickerFocuses.set(node, focus));
-    const store = context.store as {isFocused: boolean; textBoxNode: HTMLInputElement; previewNode: HTMLElement};
+    const store: ColorPickerStore = context.store;
 
     const isColorValid = isValidColor(props.color);
 
@@ -51,7 +59,7 @@ function ColorPicker(props: ColorPickerProps) {
         }
         store.isFocused = true;
         context.refresh();
-        window.addEventListener('mousedown', onOuterClick);
+        window.addEventListener('mousedown', onOuterClick, {passive: true});
     }
 
     function blur() {

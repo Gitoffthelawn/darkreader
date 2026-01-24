@@ -1,5 +1,6 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
+
 import type {RGBA} from '../../../utils/color';
 import {parseColorWithCache, rgbToHSL, hslToString, rgbToHexString} from '../../../utils/color';
 import {clamp, scale} from '../../../utils/math';
@@ -33,7 +34,7 @@ const hsbPickerDefaults: HSBPickerState = {
     activeHSB: null,
     activeChangeHandler: null,
     hueTouchStartHandler: null,
-    sbTouchStartHandler: null
+    sbTouchStartHandler: null,
 };
 
 function rgbToHSB({r, g, b}: RGBA) {
@@ -114,7 +115,7 @@ function renderSB(hue: number, canvas: HTMLCanvasElement) {
 
 export default function HSBPicker(props: HSBPickerProps) {
     const context = getContext();
-    const store = context.getStore(hsbPickerDefaults) as HSBPickerState;
+    const store = context.getStore(hsbPickerDefaults);
     store.activeChangeHandler = props.onChange;
 
     const prevColor = context.prev && context.prev.props.color;

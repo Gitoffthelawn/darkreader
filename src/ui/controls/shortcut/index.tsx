@@ -1,7 +1,8 @@
 import {m} from 'malevic';
-import {mergeClass} from '../utils';
+
 import type {Shortcuts} from '../../../definitions';
 import {isFirefox, isEdge} from '../../../utils/platform';
+import {mergeClass} from '../utils';
 
 interface ShortcutLinkProps {
     class?: string | {[cls: string]: any};
@@ -16,9 +17,9 @@ interface ShortcutLinkProps {
  * to Chrome Commands page on click.
  */
 export default function ShortcutLink(props: ShortcutLinkProps) {
-    const cls = mergeClass('shortcut', props.class);
     const shortcut = props.shortcuts[props.commandName];
     const shortcutMessage = props.textTemplate(shortcut);
+    const cls = mergeClass('shortcut', [shortcut ? 'shortcut--set' : null, props.class]);
 
     let enteringShortcutInProgress = false;
 
@@ -142,13 +143,13 @@ export default function ShortcutLink(props: ShortcutLinkProps) {
         if (isEdge) {
             chrome.tabs.create({
                 url: `edge://extensions/shortcuts`,
-                active: true
+                active: true,
             });
             return;
         }
         chrome.tabs.create({
             url: `chrome://extensions/configureCommands#command-${chrome.runtime.id}-${props.commandName}`,
-            active: true
+            active: true,
         });
     }
 

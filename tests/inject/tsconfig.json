@@ -4,13 +4,12 @@
         "target": "ES2019",
         "module": "ES2015",
         "lib": [
-            "ES2017",
+            "ES2022",
             "DOM",
             "DOM.Iterable"
         ],
         "types": [
             "chrome",
-            "offscreencanvas",
             "jasmine"
         ],
         "allowJs": true,
@@ -24,7 +23,12 @@
         "removeComments": false,
         "sourceMap": true,
         "inlineSources": true,
-        "noEmitOnError": true
+        "noEmitOnError": true,
+        "paths": {
+            "@plus/*": ["../../src/stubs/*"],
+            "definitions": ["../../src/definitions"],
+            "utils/*": ["../../src/utils/*"]
+        }
     },
     "exclude": [
         "./coverage"

@@ -1,5 +1,5 @@
-import {ThemeEngine} from '../../generators/theme-engines';
 import type {ExtensionData, Theme, UserSettings} from '../../definitions';
+import {ThemeEngine} from '../../generators/theme-engines';
 
 export function getMockData(override = {} as Partial<ExtensionData>): ExtensionData {
     return Object.assign({
@@ -7,6 +7,7 @@ export function getMockData(override = {} as Partial<ExtensionData>): ExtensionD
         isReady: true,
         isAllowedFileSchemeAccess: false,
         settings: {
+            schemeVersion: 2,
             enabled: true,
             fetchNews: true,
             presets: [],
@@ -25,11 +26,11 @@ export function getMockData(override = {} as Partial<ExtensionData>): ExtensionD
                 styleSystemControls: true,
             } as Theme,
             customThemes: [],
-            siteList: [],
-            siteListEnabled: [],
+            enabledFor: [],
+            disabledFor: [],
             syncSitesFixes: false,
             enableContextMenus: false,
-            applyToListedOnly: false,
+            enabledByDefault: true,
             changeBrowserTheme: false,
             enableForPDF: true,
             enableForProtectedPages: false,
@@ -40,6 +41,7 @@ export function getMockData(override = {} as Partial<ExtensionData>): ExtensionD
                 mode: '',
             },
             previewNewDesign: false,
+            previewNewestDesign: false,
             time: {
                 activation: '18:00',
                 deactivation: '9:00',
@@ -56,12 +58,12 @@ export function getMockData(override = {} as Partial<ExtensionData>): ExtensionD
             'monospace',
             'cursive',
             'fantasy',
-            'system-ui'
+            'system-ui',
         ],
         news: [],
         shortcuts: {
             'addSite': 'Alt+Shift+A',
-            'toggle': 'Alt+Shift+D'
+            'toggle': 'Alt+Shift+D',
         },
         devtools: {
             dynamicFixesText: '',
@@ -84,11 +86,14 @@ export function getMockData(override = {} as Partial<ExtensionData>): ExtensionD
         },
         forcedScheme: null,
         activeTab: {
+            id: 1,
+            documentId: 'id',
             url: 'https://darkreader.org/',
             isProtected: false,
             isInDarkList: false,
             isInjected: true,
             isDarkThemeDetected: false,
         },
+        uiHighlights: [],
     } as ExtensionData, override);
 }

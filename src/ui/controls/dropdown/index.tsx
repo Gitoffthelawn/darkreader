@@ -10,13 +10,15 @@ interface DropDownProps<T> {
     onChange: (value: T) => void;
 }
 
+interface DropDownStore {
+    isOpen: boolean;
+    listNode: HTMLElement;
+    selectedNode: HTMLElement;
+}
+
 export default function DropDown<T>(props: DropDownProps<T>) {
     const context = getContext();
-    const store = context.store as {
-        isOpen: boolean;
-        listNode: HTMLElement;
-        selectedNode: HTMLElement;
-    };
+    const store: DropDownStore = context.store;
 
     if (context.prev) {
         const currOptions = props.options.map((o) => o.id);
@@ -40,7 +42,7 @@ export default function DropDown<T>(props: DropDownProps<T>) {
 
         if (store.isOpen) {
             const onOuterClick = (e: MouseEvent) => {
-                window.removeEventListener('mousedown', onOuterClick, false);
+                window.removeEventListener('mousedown', onOuterClick);
 
                 const listRect = store.listNode.getBoundingClientRect();
                 const ex = e.clientX;
@@ -56,7 +58,7 @@ export default function DropDown<T>(props: DropDownProps<T>) {
                 }
             };
 
-            window.addEventListener('mousedown', onOuterClick, false);
+            window.addEventListener('mousedown', onOuterClick, {passive: true});
         }
     }
 

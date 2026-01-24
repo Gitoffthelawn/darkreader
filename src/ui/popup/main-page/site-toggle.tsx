@@ -1,10 +1,11 @@
 import {m} from 'malevic';
-import {isChromium} from '../../../utils/platform';
+
+import type {ViewProps} from '../../../definitions';
 import {getLocalMessage} from '../../../utils/locales';
+import {isChromium} from '../../../utils/platform';
 import {isURLEnabled, isPDF, isLocalFile} from '../../../utils/url';
+import {ControlGroup} from '../../controls';
 import SiteToggle from '../components/site-toggle';
-import ControlGroup from '../control-group';
-import type {ViewProps} from '../types';
 
 export default function SiteToggleGroup(props: ViewProps) {
     const tab = props.data.activeTab;

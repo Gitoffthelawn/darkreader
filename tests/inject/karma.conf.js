@@ -3,15 +3,15 @@
 
 import fs from 'node:fs';
 import os from 'node:os';
-import rollupPluginIstanbul from 'rollup-plugin-istanbul2';
-import rollupPluginNodeResolve from '@rollup/plugin-node-resolve';
+
 import rollupPluginReplace from '@rollup/plugin-replace';
 import rollupPluginTypescript from '@rollup/plugin-typescript';
+import rollupPluginIstanbul from 'rollup-plugin-istanbul';
 import typescript from 'typescript';
 
+import {absolutePath} from '../../tasks/paths.js';
+
 import {createEchoServer} from './support/echo-server.js';
-import paths from '../../tasks/paths.js';
-const {rootPath} = paths;
 
 /**
  * @param {Partial<LocalConfig>} config
@@ -22,7 +22,7 @@ export function configureKarma(config, env) {
     const headless = config.headless || Boolean(env.KARMA_HEADLESS) || false;
 
     /** @type {ConfigOptions} */
-    let options = {
+    const options = {
         failOnFailingTestSuite: true,
         failOnEmptyTestSuite: true,
         basePath: '../..',
@@ -35,28 +35,31 @@ export function configureKarma(config, env) {
         plugins: [
             'karma-chrome-launcher',
             'karma-firefox-launcher',
+            process.platform === 'darwin' ? 'karma-safari-launcher' : null,
             'karma-rollup-preprocessor',
             'karma-jasmine',
             'karma-spec-reporter',
-        ],
+        ].filter(Boolean),
         preprocessors: {
             '**/*.+(ts|tsx)': ['rollup'],
         },
         rollupPreprocessor: {
             plugins: [
-                rollupPluginNodeResolve(),
                 rollupPluginTypescript({
+                    rootDir: absolutePath('.'),
                     typescript,
-                    tsconfig: rootPath('tests/inject/tsconfig.json'),
+                    outDir: 'build/tests',
+                    tsconfig: absolutePath('tests/inject/tsconfig.json'),
                     cacheDir: `${fs.realpathSync(os.tmpdir())}/darkreader_typescript_test_cache`,
                 }),
                 rollupPluginReplace({
                     preventAssignment: true,
                     __DEBUG__: false,
-                    __FIREFOX__: false,
-                    __CHROMIUM_MV2__: true,
+                    __FIREFOX_MV2__: false,
+                    __CHROMIUM_MV2__: false,
                     __CHROMIUM_MV3__: false,
                     __THUNDERBIRD__: false,
+                    __PLUS__: false,
                     __PORT__: '-1',
                     __TEST__: true,
                     __WATCH__: false,
@@ -100,7 +103,7 @@ export function configureKarma(config, env) {
         if (chrome || all) {
             options.customLaunchers['CIChromeHeadless'] = {
                 base: 'ChromeHeadless',
-                flags: ['--no-sandbox', '--disable-setuid-sandbox']
+                flags: ['--no-sandbox', '--disable-setuid-sandbox'],
             };
             options.browsers.push('CIChromeHeadless');
         }
@@ -128,7 +131,7 @@ export function configureKarma(config, env) {
         options.reporters.push('coverage');
         options.coverageReporter = {
             type: 'html',
-            dir: 'tests/inject/coverage/'
+            dir: 'tests/inject/coverage/',
         };
     }
 

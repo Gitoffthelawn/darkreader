@@ -2,7 +2,6 @@
 import {exec} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-
 import * as url from 'url';
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
 
@@ -58,9 +57,30 @@ export async function getChromePath() {
 /**
  * @returns {Promise<string>}
  */
+export async function getEdgePath() {
+    if (process.platform === 'darwin') {
+        return '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge';
+    }
+    if (process.platform === 'win32') {
+        return winProgramFiles('Microsoft\\Edge\\Application\\msedge.exe');
+    }
+    const possibleLinuxPaths = ['microsoft-edge', 'microsoft-edge-stable'];
+    for (const possiblePath of possibleLinuxPaths) {
+        try {
+            return await linuxAppPath(possiblePath);
+        } catch (e) {
+            // ignore
+        }
+    }
+    throw new Error('Could not find Edge');
+}
+
+/**
+ * @returns {Promise<string>}
+ */
 export async function getFirefoxPath() {
     if (process.platform === 'darwin') {
-        return '/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin';
+        return '/Applications/Firefox Nightly.app/Contents/MacOS/firefox';
     }
     if (process.platform === 'win32') {
         return await winProgramFiles('Firefox Nightly\\firefox.exe');
@@ -70,9 +90,20 @@ export async function getFirefoxPath() {
         try {
             // snap profile folders do not get loaded
             const option = await linuxAppPath(possiblePath);
+            // Firefox snap can not access the regular system-wide temporary directory,
+            // so we create a separate one within build folder
+            // See also: https://github.com/mozilla/web-ext/issues/1696
             if (!option.includes('/snap/')) {
                 return option;
             }
+            const firefoxProfile = './build/firefox-profile-for-testing';
+            process.env.TMPDIR = firefoxProfile;
+            try {
+                fs.mkdirSync(firefoxProfile);
+            } catch (e) {
+                // Do nothing
+            }
+            return option;
         } catch (e) {
             // ignore
         }
@@ -81,5 +112,6 @@ export async function getFirefoxPath() {
 }
 
 export const chromeExtensionDebugDir = path.join(__dirname, '../../build/debug/chrome');
+export const chromePlusExtensionDebugDir = path.join(__dirname, '../../build/debug/chrome-plus');
 export const chromeMV3ExtensionDebugDir = path.join(__dirname, '../../build/debug/chrome-mv3');
 export const firefoxExtensionDebugDir = path.join(__dirname, '../../build/debug/firefox');

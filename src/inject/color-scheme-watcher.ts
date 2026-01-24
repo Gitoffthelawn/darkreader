@@ -1,6 +1,6 @@
+import type {MessageBGtoCS, MessageCStoBG} from '../definitions';
 import {isSystemDarkModeEnabled, runColorSchemeChangeDetector, stopColorSchemeChangeDetector} from '../utils/media-query';
-import type {Message} from '../definitions';
-import {MessageType} from '../utils/message';
+import {MessageTypeCStoBG} from '../utils/message';
 import {setDocumentVisibilityListener, documentIsVisible, removeDocumentVisibilityListener} from '../utils/visibility';
 
 function cleanup() {
@@ -8,8 +8,8 @@ function cleanup() {
     removeDocumentVisibilityListener();
 }
 
-function sendMessage(message: Message) {
-    const responseHandler = (response: Message | 'unsupportedSender' | undefined) => {
+function sendMessage(message: MessageCStoBG): void {
+    const responseHandler = (response: MessageBGtoCS | 'unsupportedSender' | undefined) => {
         // Vivaldi bug workaround. See TabManager for details.
         if (response === 'unsupportedSender') {
             cleanup();
@@ -17,7 +17,7 @@ function sendMessage(message: Message) {
     };
 
     try {
-        const promise: Promise<Message | 'unsupportedSender'> = chrome.runtime.sendMessage<Message>(message);
+        const promise = chrome.runtime.sendMessage<MessageCStoBG, MessageBGtoCS | 'unsupportedSender'>(message);
         promise.then(responseHandler).catch(cleanup);
     } catch (error) {
         /*
@@ -31,7 +31,7 @@ function sendMessage(message: Message) {
          * Regular message passing errors are returned via rejected promise or runtime.lastError.
          */
         if (error.message === 'Extension context invalidated.') {
-            console.log('Dark Reader: instance of old CS detected, clening up.');
+            console.log('Dark Reader: instance of old CS detected, cleaning up.');
             cleanup();
         } else {
             console.log('Dark Reader: unexpected error during message passing.');
@@ -39,11 +39,11 @@ function sendMessage(message: Message) {
     }
 }
 
-function notifyOfColorScheme(isDark: boolean) {
-    sendMessage({type: MessageType.CS_COLOR_SCHEME_CHANGE, data: {isDark}});
+function notifyOfColorScheme(isDark: boolean): void {
+    sendMessage({type: MessageTypeCStoBG.COLOR_SCHEME_CHANGE, data: {isDark}});
 }
 
-function updateEventListeners() {
+function updateEventListeners(): void {
     notifyOfColorScheme(isSystemDarkModeEnabled());
     if (documentIsVisible()) {
         runColorSchemeChangeDetector(notifyOfColorScheme);

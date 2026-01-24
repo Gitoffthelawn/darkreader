@@ -1,14 +1,19 @@
 import {m} from 'malevic';
 import {sync} from 'malevic/dom';
-import Connector from '../connect/connector';
-import Body from './components/body';
-import {popupHasBuiltInHorizontalBorders, popupHasBuiltInBorders, fixNotClosingPopupOnNavigation} from './utils/issues';
-import type {ExtensionData, ExtensionActions} from '../../definitions';
-import {isMobile, isFirefox} from '../../utils/platform';
-import {MessageType} from '../../utils/message';
-import {getFontList} from '../utils';
 
-function renderBody(data: ExtensionData, fonts: string[], actions: ExtensionActions) {
+import type {ExtensionData, ExtensionActions, DebugMessageBGtoCS, DebugMessageBGtoUI} from '../../definitions';
+import {DebugMessageTypeBGtoUI} from '../../utils/message';
+import {isMobile, isFirefox} from '../../utils/platform';
+import Connector from '../connect/connector';
+import {getFontList, saveFile} from '../utils';
+
+import Body from './components/body';
+import {fixNotClosingPopupOnNavigation} from './utils/issues';
+import {initAltUI, shouldUseAltUI} from '@plus/popup/plus-body';
+
+declare const __PLUS__: boolean;
+
+function renderBody(data: ExtensionData, fonts: string[], installation: {date: number; version: string}, actions: ExtensionActions) {
     if (data.settings.previewNewDesign) {
         if (!document.documentElement.classList.contains('preview')) {
             document.documentElement.classList.add('preview');
@@ -25,37 +30,52 @@ function renderBody(data: ExtensionData, fonts: string[], actions: ExtensionActi
     }
 
     sync(document.body, (
-        <Body data={data} actions={actions} fonts={fonts} />
+        <Body data={data} actions={actions} fonts={fonts} installation={installation} />
     ));
 }
 
+async function getInstallationData() {
+    return new Promise<any>((resolve) => {
+        chrome.storage.local.get<Record<string, any>>({installation: {}}, (data) => {
+            if (data?.installation?.version) {
+                resolve(data.installation);
+            } else {
+                resolve({});
+            }
+        });
+    });
+}
+
 async function start() {
+    if (__PLUS__ && shouldUseAltUI()) {
+        return await initAltUI();
+    }
+
     const connector = new Connector();
     window.addEventListener('unload', () => connector.disconnect());
 
-    const [data, fonts] = await Promise.all([
+    const [data, fonts, installation] = await Promise.all([
         connector.getData(),
-        getFontList()
+        getFontList(),
+        getInstallationData(),
     ]);
-    renderBody(data, fonts, connector);
-    connector.subscribeToChanges((data) => renderBody(data, fonts, connector));
+    renderBody(data, fonts, installation, connector);
+    connector.subscribeToChanges((data) => renderBody(data, fonts, installation, connector));
 }
 
-addEventListener('load', start);
+window.addEventListener('load', start);
 
 document.documentElement.classList.toggle('mobile', isMobile);
 document.documentElement.classList.toggle('firefox', isFirefox);
-document.documentElement.classList.toggle('built-in-borders', popupHasBuiltInBorders());
-document.documentElement.classList.toggle('built-in-horizontal-borders', popupHasBuiltInHorizontalBorders());
 
 if (isFirefox) {
     fixNotClosingPopupOnNavigation();
 }
 
-declare const __TEST__: boolean;
-if (__TEST__) {
-    chrome.runtime.onMessage.addListener(({type}) => {
-        if (type === MessageType.BG_CSS_UPDATE) {
+declare const __DEBUG__: boolean;
+if (__DEBUG__) {
+    chrome.runtime.onMessage.addListener(({type}: DebugMessageBGtoCS | DebugMessageBGtoUI) => {
+        if (type === DebugMessageTypeBGtoUI.CSS_UPDATE) {
             document.querySelectorAll('link[rel="stylesheet"]').forEach((link: HTMLLinkElement) => {
                 const url = link.href;
                 link.disabled = true;
@@ -67,11 +87,14 @@ if (__TEST__) {
             });
         }
 
-        if (type === MessageType.BG_UI_UPDATE) {
+        if (type === DebugMessageTypeBGtoUI.UPDATE) {
             location.reload();
         }
     });
+}
 
+declare const __TEST__: boolean;
+if (__TEST__) {
     const socket = new WebSocket(`ws://localhost:8894`);
     socket.onopen = async () => {
         socket.send(JSON.stringify({
@@ -85,22 +108,45 @@ if (__TEST__) {
     socket.onmessage = (e) => {
         const respond = (message: {id?: number; data?: any; error?: string}) => socket.send(JSON.stringify(message));
         try {
-            const message: {type: string; id: number; data: string} = JSON.parse(e.data);
+            const message: {type: string; id: number; data: any} = JSON.parse(e.data);
             const {type, id, data} = message;
-            if (type === 'click') {
-                const selector = data;
-                const element: HTMLElement = document.querySelector(selector)!;
-                element.click();
-                respond({id});
-            } else if (type === 'exists') {
-                const selector = data;
-                const element = document.querySelector(selector);
-                respond({id, data: element != null});
-            } else if (type === 'rect') {
-                const selector = data;
-                const element: HTMLElement = document.querySelector(selector)!;
-                const rect = element.getBoundingClientRect();
-                respond({id, data: {left: rect.left, top: rect.top, width: rect.width, height: rect.height}});
+            switch (type) {
+                case 'popup-click': {
+                    // The required element may not exist yet
+                    const check = () => {
+                        const element: HTMLElement | null = document.querySelector(data);
+                        if (element) {
+                            element.click();
+                            respond({id});
+                        } else {
+                            requestIdleCallback(check, {timeout: 500});
+                        }
+                    };
+
+                    check();
+                    break;
+                }
+                case 'popup-exists': {
+                    // The required element may not exist yet
+                    const check = () => {
+                        const element: HTMLElement | null = document.querySelector(data);
+                        if (element) {
+                            respond({id, data: true});
+                        } else {
+                            requestIdleCallback(check, {timeout: 500});
+                        }
+                    };
+
+                    check();
+                    break;
+                }
+                case 'popup-saveFile': {
+                    const {name, content} = data;
+                    saveFile(name, content);
+                    respond({id});
+                    break;
+                }
+                default:
             }
         } catch (err) {
             respond({error: String(err)});

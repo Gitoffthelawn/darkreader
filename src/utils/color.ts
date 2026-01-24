@@ -1,4 +1,5 @@
 import {evalMath} from './math-eval';
+import {isSystemDarkModeEnabled} from './media-query';
 import {getParenthesesRange} from './text';
 
 export interface RGBA {
@@ -29,13 +30,16 @@ export function parseColorWithCache($color: string): RGBA | null {
         $color = lowerCalcExpression($color);
     }
     const color = parse($color);
-    color && rgbaParseCache.set($color, color);
-    return color;
+    if (color) {
+        rgbaParseCache.set($color, color);
+        return color;
+    }
+    return null;
 }
 
-export function parseToHSLWithCache(color: string) {
+export function parseToHSLWithCache(color: string): HSLA | null {
     if (hslaParseCache.has(color)) {
-        return hslaParseCache.get(color);
+        return hslaParseCache.get(color)!;
     }
     const rgb = parseColorWithCache(color);
     if (!rgb) {
@@ -46,7 +50,7 @@ export function parseToHSLWithCache(color: string) {
     return hsl;
 }
 
-export function clearColorCache() {
+export function clearColorCache(): void {
     hslaParseCache.clear();
     rgbaParseCache.clear();
 }
@@ -103,7 +107,7 @@ export function rgbToHSL({r: r255, g: g255, b: b255, a = 1}: RGBA): HSLA {
     return {h, s, l, a};
 }
 
-function toFixed(n: number, digits = 0) {
+function toFixed(n: number, digits = 0): string {
     const fixed = n.toFixed(digits);
     if (digits === 0) {
         return fixed;
@@ -121,7 +125,7 @@ function toFixed(n: number, digits = 0) {
     return fixed;
 }
 
-export function rgbToString(rgb: RGBA) {
+export function rgbToString(rgb: RGBA): string {
     const {r, g, b, a} = rgb;
     if (a != null && a < 1) {
         return `rgba(${toFixed(r)}, ${toFixed(g)}, ${toFixed(b)}, ${toFixed(a, 2)})`;
@@ -129,13 +133,13 @@ export function rgbToString(rgb: RGBA) {
     return `rgb(${toFixed(r)}, ${toFixed(g)}, ${toFixed(b)})`;
 }
 
-export function rgbToHexString({r, g, b, a}: RGBA) {
+export function rgbToHexString({r, g, b, a}: RGBA): string {
     return `#${(a != null && a < 1 ? [r, g, b, Math.round(a * 255)] : [r, g, b]).map((x) => {
         return `${x < 16 ? '0' : ''}${x.toString(16)}`;
     }).join('')}`;
 }
 
-export function hslToString(hsl: HSLA) {
+export function hslToString(hsl: HSLA): string {
     const {h, s, l, a} = hsl;
     if (a != null && a < 1) {
         return `hsla(${toFixed(h)}, ${toFixed(s * 100)}%, ${toFixed(l * 100)}%, ${toFixed(a, 2)})`;
@@ -147,10 +151,32 @@ const rgbMatch = /^rgba?\([^\(\)]+\)$/;
 const hslMatch = /^hsla?\([^\(\)]+\)$/;
 const hexMatch = /^#[0-9a-f]+$/i;
 
+const supportedColorFuncs = [
+    'color',
+    'color-mix',
+    'hwb',
+    'lab',
+    'lch',
+    'oklab',
+    'oklch',
+];
+
 export function parse($color: string): RGBA | null {
     const c = $color.trim().toLowerCase();
+    if (c.includes('(from ')) {
+        if (c.indexOf('(from') !== c.lastIndexOf('(from')) {
+            return null;
+        }
+        return domParseColor(c);
+    }
 
     if (c.match(rgbMatch)) {
+        if (c.startsWith('rgb(#') || c.startsWith('rgba(#')) {
+            if (c.lastIndexOf('rgb') > 0) {
+                return null;
+            }
+            return domParseColor(c);
+        }
         return parseRGB(c);
     }
 
@@ -170,8 +196,26 @@ export function parse($color: string): RGBA | null {
         return getSystemColor(c);
     }
 
-    if ($color === 'transparent') {
+    if (c === 'transparent') {
         return {r: 0, g: 0, b: 0, a: 0};
+    }
+
+    if (
+        c.endsWith(')') &&
+        supportedColorFuncs.some(
+            (fn) => c.startsWith(fn) && c[fn.length] === '(' && c.lastIndexOf(fn) === 0
+        )
+    ) {
+        return domParseColor(c);
+    }
+
+    if (c.startsWith('light-dark(') && c.endsWith(')')) {
+        // light-dark([color()], [color()])
+        const match = c.match(/^light-dark\(\s*([a-z]+(\(.*\))?),\s*([a-z]+(\(.*\))?)\s*\)$/);
+        if (match) {
+            const schemeColor = isSystemDarkModeEnabled() ? match[3] : match[1];
+            return parse(schemeColor);
+        }
     }
 
     return null;
@@ -233,20 +277,26 @@ function getNumbersFromString(str: string, range: number[], units: {[unit: strin
 const rgbRange = [255, 255, 255, 1];
 const rgbUnits = {'%': 100};
 
-function parseRGB($rgb: string) {
+function parseRGB($rgb: string): RGBA | null {
     const [r, g, b, a = 1] = getNumbersFromString($rgb, rgbRange, rgbUnits);
+    if (r == null || g == null || b == null || a == null) {
+        return null;
+    }
     return {r, g, b, a};
 }
 
 const hslRange = [360, 1, 1, 1];
 const hslUnits = {'%': 100, 'deg': 360, 'rad': 2 * Math.PI, 'turn': 1};
 
-function parseHSL($hsl: string) {
+function parseHSL($hsl: string): RGBA | null {
     const [h, s, l, a = 1] = getNumbersFromString($hsl, hslRange, hslUnits);
+    if (h == null || s == null || l == null || a == null) {
+        return null;
+    }
     return hslToRGB({h, s, l, a});
 }
 
-function parseHex($hex: string) {
+function parseHex($hex: string): RGBA | null {
     const h = $hex.substring(1);
     switch (h.length) {
         case 3:
@@ -265,23 +315,23 @@ function parseHex($hex: string) {
     return null;
 }
 
-function getColorByName($color: string) {
+function getColorByName($color: string): RGBA {
     const n = knownColors.get($color)!;
     return {
         r: (n >> 16) & 255,
         g: (n >> 8) & 255,
         b: (n >> 0) & 255,
-        a: 1
+        a: 1,
     };
 }
 
-function getSystemColor($color: string) {
+function getSystemColor($color: string): RGBA {
     const n = systemColors.get($color)!;
     return {
         r: (n >> 16) & 255,
         g: (n >> 8) & 255,
         b: (n >> 0) & 255,
-        a: 1
+        a: 1,
     };
 }
 
@@ -502,10 +552,27 @@ const systemColors: Map<string, number> = new Map(Object.entries({
     Window: 0xececec,
     WindowFrame: 0xaaaaaa,
     WindowText: 0x000000,
-    '-webkit-focus-ring-color': 0xe59700
+    '-webkit-focus-ring-color': 0xe59700,
 }).map(([key, value]) => [key.toLowerCase(), value] as [string, number]));
 
 // https://en.wikipedia.org/wiki/Relative_luminance
-export function getSRGBLightness(r: number, g: number, b: number) {
+export function getSRGBLightness(r: number, g: number, b: number): number {
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+let canvas: HTMLCanvasElement;
+let context: CanvasRenderingContext2D;
+
+function domParseColor($color: string) {
+    if (!context) {
+        canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        context = canvas.getContext('2d', {willReadFrequently: true})!;
+    }
+    context.fillStyle = $color;
+    context.fillRect(0, 0, 1, 1);
+    const d = context.getImageData(0, 0, 1, 1).data;
+    const color = `rgba(${d[0]}, ${d[1]}, ${d[2]}, ${(d[3] / 255).toFixed(2)})`;
+    return parseRGB(color);
 }

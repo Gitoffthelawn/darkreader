@@ -1,8 +1,8 @@
-import {HOMEPAGE_URL, BLOG_URL, DEVTOOLS_DOCS_URL, DONATE_URL, GITHUB_URL, PRIVACY_URL, TWITTER_URL, UNINSTALL_URL, HELP_URL} from './links';
+import {HOMEPAGE_URL, BLOG_URL, DEVTOOLS_DOCS_URL, GITHUB_URL, PRIVACY_URL, TWITTER_URL, UNINSTALL_URL, HELP_URL} from './links';
 
 enum CSP {
     NONE = "'none'",
-    SELF = "'self'",
+    SELF = "'self'"
 }
 
 function check() {
@@ -31,14 +31,13 @@ export function prepareCSPMV3(): chrome.runtime.ManifestV3['content_security_pol
                 `${HOMEPAGE_URL}/*`,
                 DEVTOOLS_DOCS_URL,
                 GITHUB_URL,
-                DONATE_URL,
                 TWITTER_URL,
             ],
             'media-src': [CSP.NONE],
             'child-src': [CSP.NONE],
             'worker-src': [CSP.NONE],
             'object-src': [CSP.NONE],
-        }
+        },
     };
     for (const p in policy) {
         const outputs: string[] = [];

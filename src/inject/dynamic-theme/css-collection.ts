@@ -1,6 +1,7 @@
 import {forEach} from '../../utils/array';
+import {formatCSS} from '../../utils/css-text/format-css';
 import {loadAsDataURL} from '../../utils/network';
-import {getMatches, formatCSS} from '../../utils/text';
+import {getMatches} from '../../utils/text';
 
 const blobRegex = /url\(\"(blob\:.*?)\"\)/g;
 
@@ -38,7 +39,7 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 /*! Dark reader generated CSS | Licensed under MIT https://github.com/darkreader/darkreader/blob/main/LICENSE */
 `;
 
-export async function collectCSS() {
+export async function collectCSS(): Promise<string> {
     const css = [banner];
 
     function addStaticCSS(selector: string, comment: string) {

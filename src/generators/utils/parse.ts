@@ -1,5 +1,5 @@
-import {isFullyQualifiedDomain, isFullyQualifiedDomainWildcard, fullyQualifiedDomainMatchesWildcard, isURLInList, isURLMatched} from '../../utils/url';
 import {parseArray} from '../../utils/text';
+import {isFullyQualifiedDomain, isFullyQualifiedDomainWildcard, fullyQualifiedDomainMatchesWildcard, isURLInList, isURLMatched} from '../../utils/url';
 
 declare const __TEST__: boolean;
 
@@ -8,40 +8,42 @@ const INDEX_CACHE_CLEANUP_INTERVAL_IN_MS = 60000;
 // TODO: remove cast once types are updated
 declare function clearTimeout(id: ReturnType<typeof setTimeout> | null | undefined): void;
 
-interface SiteProps {
-    url: string[];
+interface SitePropsMut {
+    url: readonly string[];
 }
 
+type SiteProps = Readonly<SitePropsMut>;
+
 export interface SitePropsIndex<SiteFix extends SiteProps> {
-    offsets: string;
-    domains: { [domain: string]: number[] };
-    domainLabels: { [domainLabel: string]: number[] };
-    nonstandard: number[];
-    cacheSiteFix: { [offsetId: number]: SiteFix };
-    cacheDomainIndex: { [domain: string]: number[] };
+    offsets: Readonly<string>;
+    domains: Readonly<{[domain: string]: readonly number[]}>;
+    domainLabels: Readonly<{[domainLabel: string]: readonly number[]}>;
+    nonstandard: readonly number[];
+    cacheSiteFix: {[offsetId: number]: Readonly<SiteFix>};
+    cacheDomainIndex: {[domain: string]: readonly number[]};
     cacheCleanupTimer: ReturnType<typeof setTimeout> | null;
 }
 
 interface ConfigIndex {
-    domains: { [domain: string]: number[] };
-    domainLabels: { [domainLabel: string]: number[] };
-    nonstandard: number[] | null;
+    domains: Readonly<{[domain: string]: readonly number[]}>;
+    domainLabels: Readonly<{[domainLabel: string]: readonly number[]}>;
+    nonstandard: Readonly<number[] | null>;
 }
 
 export interface SiteListIndex {
-    urls: string[];
-    domains: { [domain: string]: number[] };
-    domainLabels: { [domainLabel: string]: number[] };
-    nonstandard: number[];
+    urls: readonly string[];
+    domains: Readonly<{[domain: string]: number[]}>;
+    domainLabels: Readonly<{[domainLabel: string]: readonly number[]}>;
+    nonstandard: readonly number[];
 }
 
 export interface SitesFixesParserOptions<T> {
-    commands: string[];
+    commands: readonly string[];
     getCommandPropName: (command: string) => keyof T;
     parseCommandValue: (command: string, value: string) => any;
 }
 
-export function parseSitesFixesConfig<T extends SiteProps>(text: string, options: SitesFixesParserOptions<T>) {
+export function parseSitesFixesConfig<T extends SiteProps>(text: string, options: SitesFixesParserOptions<T>): T[] {
     const sites: T[] = [];
 
     const blocks = text.replace(/\r/g, '').split(/^\s*={2,}\s*$/gm);
@@ -59,7 +61,7 @@ export function parseSitesFixesConfig<T extends SiteProps>(text: string, options
         }
 
         const siteFix = {
-            url: parseArray(lines.slice(0, commandIndices[0]).join('\n')),
+            url: parseArray(lines.slice(0, commandIndices[0]).join('\n')) as readonly string[],
         } as T;
 
         commandIndices.forEach((commandIndex, i) => {
@@ -80,7 +82,7 @@ export function parseSitesFixesConfig<T extends SiteProps>(text: string, options
 }
 
 // URL patterns are guaranteed to not have protocol and leading '/'
-export function getDomain(url: string) {
+export function getDomain(url: string): string {
     try {
         return (new URL(url)).hostname.toLowerCase();
     } catch (error) {
@@ -188,7 +190,7 @@ function indexConfigURLs(urls: string[][]): {domains: { [domain: string]: number
     return {domains, domainLabels, nonstandard};
 }
 
-function processSiteFixesConfigBlock(text: string, offsets: Array<[number, number]>, recordStart: number, recordEnd: number, urls: string[][]) {
+function processSiteFixesConfigBlock(text: string, offsets: Array<[number, number]>, recordStart: number, recordEnd: number, urls: Array<readonly string[]>) {
     // TODO: more formal definition of URLs and delimiters
     const block = text.substring(recordStart, recordEnd);
     const lines = block.split('\n');
@@ -235,7 +237,7 @@ export function indexSitesFixesConfig<T extends SiteProps>(text: string): SitePr
     return {offsets: encodeOffsets(offsets), domains, domainLabels, nonstandard, cacheDomainIndex: {}, cacheSiteFix: {}, cacheCleanupTimer: null};
 }
 
-function lookupConfigURLsInDomainLabels(domain: string, recordIds: number[], currRecordIds: number[], getAllRecordURLs: (id: number) => string[]) {
+function lookupConfigURLsInDomainLabels(domain: string, recordIds: number[], currRecordIds: readonly number[], getAllRecordURLs: (id: number) => readonly string[]) {
     for (const recordId of currRecordIds) {
         const recordURLs = getAllRecordURLs(recordId);
         for (const ruleUrl of recordURLs) {
@@ -249,19 +251,19 @@ function lookupConfigURLsInDomainLabels(domain: string, recordIds: number[], cur
     }
 }
 
-function lookupConfigURLs(domain: string, index: ConfigIndex, getAllRecordURLs: (id: number) => string[]): number[] {
+function lookupConfigURLs(domain: string, index: ConfigIndex, getAllRecordURLs: (id: number) => readonly string[]): number[] {
     const labels = domain.split('.');
     let recordIds: number[] = [];
 
     // Common fix
-    if ('*' in index.domainLabels) {
+    if (index.domainLabels.hasOwnProperty('*')) {
         recordIds = recordIds.concat(index.domainLabels['*']);
     }
 
     // Wildcard fixes
     for (const label of labels) {
         // We need to use in operator because ids are 0-based and 0 is falsy
-        if (label in index.domainLabels) {
+        if (index.domainLabels.hasOwnProperty(label)) {
             const currRecordIds = index.domainLabels[label];
             lookupConfigURLsInDomainLabels(domain, recordIds, currRecordIds, getAllRecordURLs);
         }
@@ -269,10 +271,10 @@ function lookupConfigURLs(domain: string, index: ConfigIndex, getAllRecordURLs: 
 
     for (let i = 0; i < labels.length; i++) {
         const substring = labels.slice(i).join('.');
-        if (substring in index.domains) {
+        if (index.domains.hasOwnProperty(substring)) {
             recordIds = recordIds.concat(index.domains[substring]);
         }
-        if (substring in index.domainLabels) {
+        if (index.domainLabels.hasOwnProperty(substring)) {
             const currRecordIds = index.domainLabels[substring];
             lookupConfigURLsInDomainLabels(domain, recordIds, currRecordIds, getAllRecordURLs);
         }
@@ -304,8 +306,8 @@ function lookupConfigURLs(domain: string, index: ConfigIndex, getAllRecordURLs: 
  * @param id numeric index of the fix
  * @returns a single fix
  */
-function getSiteFix<T extends SiteProps>(text: string, index: SitePropsIndex<T>, options: SitesFixesParserOptions<T>, id: number): T {
-    if (id in index.cacheSiteFix) {
+function getSiteFix<T extends SiteProps>(text: string, index: SitePropsIndex<T>, options: SitesFixesParserOptions<T>, id: number): Readonly<T> {
+    if (index.cacheSiteFix.hasOwnProperty(id)) {
         return index.cacheSiteFix[id];
     }
 
@@ -343,7 +345,7 @@ function scheduleCacheCleanup<T extends SiteProps>(index: SitePropsIndex<T>) {
  *  - caching the numeric ids keyed by domain (to avoid re-computing lists of site fixes for the same site,
  *    which is useful if user has multiple tabs of the same site and toggles Dark Reader on)
  */
-export function getSitesFixesFor<T extends SiteProps>(url: string, text: string, index: SitePropsIndex<T>, options: SitesFixesParserOptions<T>): T[] {
+export function getSitesFixesFor<T extends SiteProps>(url: string, text: string, index: SitePropsIndex<T>, options: SitesFixesParserOptions<T>): Array<Readonly<T>> {
     const records: T[] = [];
     const domain = getDomain(url);
 
@@ -351,7 +353,7 @@ export function getSitesFixesFor<T extends SiteProps>(url: string, text: string,
         index.cacheDomainIndex[domain] = lookupConfigURLs(domain, index, (recordId) => getSiteFix<T>(text, index, options, recordId).url);
     }
 
-    const recordIds: number[] = index.cacheDomainIndex[domain];
+    const recordIds = index.cacheDomainIndex[domain];
     for (const recordId of recordIds) {
         const fix = getSiteFix<T>(text, index, options, recordId);
         records.push(fix);

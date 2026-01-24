@@ -2,7 +2,7 @@ import {multiline} from '../../support/test-utils';
 import type {StyleExpectations} from '../globals';
 
 async function expectStyles(styles: StyleExpectations) {
-    expectPageStyles(expect, styles);
+    await expectPageStyles(expect, styles);
 }
 
 describe('Style override', () => {
@@ -74,7 +74,7 @@ describe('Style override', () => {
             ),
         });
 
-        await evaluateScript(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -84,10 +84,10 @@ describe('Style override', () => {
 
         await expectStyles([
             ['h1', 'color', 'rgb(152, 143, 129)'],
-            ['h1 strong', 'color', 'rgb(255, 26, 26)']
+            ['h1 strong', 'color', 'rgb(255, 26, 26)'],
         ]);
 
-        await expect(evaluateScript(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             style.nextSibling.remove();
             await new Promise((resolve) => setTimeout(resolve));
@@ -109,7 +109,7 @@ describe('Style override', () => {
             ),
         });
 
-        await evaluateScript(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -117,7 +117,7 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red } ');
         });
 
-        await expect(evaluateScript(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             document.body.append(style);
             await new Promise((resolve) => setTimeout(resolve));
@@ -139,7 +139,7 @@ describe('Style override', () => {
             ),
         });
 
-        await evaluateScript(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -147,7 +147,7 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red }');
         });
 
-        await expect(evaluateScript(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             const sibling = style.nextSibling;
             style.remove();
@@ -174,7 +174,7 @@ describe('Style override', () => {
             ),
         });
 
-        await evaluateScript(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -182,12 +182,12 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red }');
         });
 
-        await expect(evaluateScript(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             (style as HTMLStyleElement).sheet.insertRule('html { background-color: pink }');
             await new Promise((resolve) => setTimeout(resolve));
             return (style.nextSibling as HTMLStyleElement).sheet.cssRules[0].cssText;
-        })).resolves.toBe('html { background-color: rgb(89, 0, 16); }');
+        })).resolves.toBe('html { background-color: var(--darkreader-background-ffc0cb, #590010); }');
     });
 
     it('should react to a new style', async () => {
@@ -204,7 +204,7 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(evaluateScript(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -233,7 +233,7 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(evaluateScript(async () => {
+        pageUtils.evaluateScript(async () => {
             class CustomElement extends HTMLElement {
                 constructor() {
                     super();
@@ -249,9 +249,10 @@ describe('Style override', () => {
             }
 
             customElements.define('custom-element', CustomElement);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            const shadowRoot = document.querySelector('custom-element').shadowRoot;
-            return getComputedStyle(shadowRoot.querySelector('p')).color;
-        })).resolves.toBe('rgb(255, 160, 177)');
+        });
+
+        await expectStyles([
+            [['custom-element', 'p'], 'color', 'rgb(255, 160, 177)'],
+        ]);
     });
 });

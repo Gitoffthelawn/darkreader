@@ -1,13 +1,19 @@
 import {loadAsDataURL, loadAsText} from '../../utils/network';
+import {isXMLHttpRequestSupported, isFetchSupported} from '../../utils/platform';
 import {getStringSize} from '../../utils/text';
 import {getDuration} from '../../utils/time';
-import {isXMLHttpRequestSupported, isFetchSupported} from '../../utils/platform';
 
 declare const __TEST__: boolean;
 
 interface RequestParams {
     url: string;
     timeout?: number;
+}
+
+type FileLoaderResponse = {data: string; error?: Error} | {data?: string; error: Error};
+
+export interface FileLoader {
+    get: (fetchRequestParameters: FetchRequestParameters) => Promise<FileLoaderResponse>;
 }
 
 export async function readText(params: RequestParams): Promise<string> {
@@ -100,11 +106,11 @@ class LimitedCacheStorage {
         }
     }
 
-    public has(url: string) {
+    has(url: string) {
         return this.records.has(url);
     }
 
-    public get(url: string) {
+    get(url: string) {
         if (this.records.has(url)) {
             const record = this.records.get(url)!;
             record.expires = Date.now() + LimitedCacheStorage.TTL;
@@ -115,7 +121,7 @@ class LimitedCacheStorage {
         return null;
     }
 
-    public set(url: string, value: string) {
+    set(url: string, value: string) {
         LimitedCacheStorage.ensureAlarmIsScheduled();
 
         const size = getStringSize(value);
@@ -130,6 +136,10 @@ class LimitedCacheStorage {
             } else {
                 break;
             }
+        }
+
+        if (this.records.size === 0) {
+            this.bytesInUse = 0;
         }
 
         const expires = Date.now() + LimitedCacheStorage.TTL;
@@ -148,10 +158,52 @@ class LimitedCacheStorage {
             }
         }
 
-        if (this.records.size !== 0) {
+        if (this.records.size === 0) {
+            this.bytesInUse = 0;
+        } else {
             LimitedCacheStorage.ensureAlarmIsScheduled();
         }
     }
+}
+
+function createLimiter() {
+    const loadingUrls = new Set<string>();
+    const awaitingUrls = new Map<string, Set<(response: FileLoaderResponse) => void>>();
+
+    function loading(url: string) {
+        const result = loadingUrls.has(url);
+        loadingUrls.add(url);
+        return result;
+    }
+
+    async function wait(url: string) {
+        return new Promise<FileLoaderResponse>((resolve) => {
+            if (!awaitingUrls.has(url)) {
+                awaitingUrls.set(url, new Set());
+            }
+            awaitingUrls.get(url)?.add(resolve);
+        });
+    }
+
+    async function loaded(url: string, data: string) {
+        loadingUrls.delete(url);
+        if (awaitingUrls.has(url)) {
+            const response = {data};
+            awaitingUrls.get(url)!.forEach((callback) => callback(response));
+            awaitingUrls.delete(url);
+        }
+    }
+
+    async function failed(url: string, error: Error) {
+        loadingUrls.delete(url);
+        if (awaitingUrls.has(url)) {
+            const response = {error};
+            awaitingUrls.get(url)!.forEach((callback) => callback(response));
+            awaitingUrls.delete(url);
+        }
+    }
+
+    return {loading, wait, loaded, failed};
 }
 
 export interface FetchRequestParameters {
@@ -161,7 +213,7 @@ export interface FetchRequestParameters {
     origin?: string;
 }
 
-export function createFileLoader() {
+export function createFileLoader(): FileLoader {
     const caches = {
         'data-url': new LimitedCacheStorage(),
         'text': new LimitedCacheStorage(),
@@ -172,16 +224,33 @@ export function createFileLoader() {
         'text': loadAsText,
     };
 
-    async function get({url, responseType, mimeType, origin}: FetchRequestParameters) {
+    const limiters = {
+        'data-url': createLimiter(),
+        'text': createLimiter(),
+    };
+
+    async function get({url, responseType, mimeType, origin}: FetchRequestParameters): Promise<FileLoaderResponse> {
         const cache = caches[responseType];
         const load = loaders[responseType];
+        const limiter = limiters[responseType];
         if (cache.has(url)) {
-            return cache.get(url);
+            const data = cache.get(url)!;
+            return {data};
         }
 
-        const data = await load(url, mimeType, origin);
-        cache.set(url, data);
-        return data;
+        if (limiter.loading(url)) {
+            return limiter.wait(url);
+        }
+
+        try {
+            const data = await load(url, mimeType, origin);
+            cache.set(url, data);
+            limiter.loaded(url, data);
+            return {data};
+        } catch (error) {
+            limiter.failed(url, error);
+            return {error};
+        }
     }
 
     return {get};

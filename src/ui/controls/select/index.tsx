@@ -1,6 +1,7 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
 import {withState, useState} from 'malevic/state';
+
 import Button from '../button';
 import TextBox from '../textbox';
 import VirtualScroll from '../virtual-scroll';
@@ -80,7 +81,7 @@ function Select(props: SelectProps) {
     function expandList() {
         setState({isExpanded: true});
         scrollToValue(props.value);
-        window.addEventListener('click', onOuterClick);
+        window.addEventListener('click', onOuterClick, {passive: true});
     }
 
     function collapseList() {
