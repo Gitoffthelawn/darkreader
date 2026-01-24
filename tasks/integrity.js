@@ -1,9 +1,8 @@
+import {mkdir, rm, copyFile, writeFile, readFile, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {promisify} from 'node:util';
-import {mkdir, rm, writeFile, readFile, stat} from 'node:fs/promises';
-import {exec} from 'node:child_process';
-const execP = promisify(exec);
+
 import unzipper from 'adm-zip';
+
 import {log} from './utils.js';
 
 const tmpDirParent = `${tmpdir()}/darkreader-integrity`;
@@ -44,7 +43,7 @@ function toBuffer(arrayBuffer) {
     return buffer;
 }
 
-function firefoxExtractMetaInfOrder(manifest) {
+function firefoxExtractHashMetaInfOrder(manifest) {
     function getDigestAlgos(lines) {
         const digestHeader = lines[3];
         if (digestHeader === 'Digest-Algorithms: MD5 SHA1') {
@@ -133,13 +132,28 @@ function firefoxExtractMetaInfOrder(manifest) {
         return {type};
     }
 
-    const desiredOrder = [...realOrder].sort();
+    const sortedOrder = [...realOrder].sort();
     const order = [];
     for (let i = 0; i < realOrder.length; i++) {
-        order.push(realOrder.indexOf(desiredOrder[i]));
+        order.push(sortedOrder.indexOf(realOrder[i]));
     }
 
     return {type, order};
+}
+
+function getIndent(fileJSON) {
+    return fileJSON.indexOf('"') - fileJSON.indexOf('\n') - 1;
+}
+
+function getManifestJSONData(fileJSON) {
+    const indent = getIndent(fileJSON);
+    const settings = JSON.parse(fileJSON).browser_specific_settings ? 1 : undefined;
+    if (indent !== 2 || settings !== undefined) {
+        return {
+            settings,
+            indent: indent !== 2 ? indent : undefined,
+        };
+    }
 }
 
 async function firefoxFetchAllMetadata(noCache = false) {
@@ -184,18 +198,26 @@ async function firefoxFetchAllMetadata(noCache = false) {
         zip.extractAllTo(tempDest);
 
 
-        const manifest = await readFile(`${tempDest}/META-INF/manifest.mf`, {encoding: 'utf-8'});
-        const {type, order} = firefoxExtractMetaInfOrder(manifest);
+        const manifestMf = await readFile(`${tempDest}/META-INF/manifest.mf`, {encoding: 'utf-8'});
+        const {type, order} = firefoxExtractHashMetaInfOrder(manifestMf);
 
-        await writeFile(`${dest}/info.json`, `${JSON.stringify({type, order})}\n`);
-        await execP(`cp -r ${tempDest}/META-INF/mozilla.rsa ${dest}/mozilla.rsa`);
+        const manifestJSON = await readFile(`${tempDest}/manifest.json`, {encoding: 'utf-8'});
+        const manifest = getManifestJSONData(manifestJSON);
+
+        const info = {
+            type,
+            manifest,
+            order,
+        };
+        await writeFile(`${dest}/info.json`, `${JSON.stringify(info)}\n`);
+        await copyFile(`${tempDest}/META-INF/mozilla.rsa`, `${dest}/mozilla.rsa`);
         try {
-            await execP(`cp -r ${tempDest}/META-INF/cose.sig ${dest}/cose.sig`);
+            await copyFile(`${tempDest}/META-INF/cose.sig`, `${dest}/cose.sig`);
         } catch (e) {
             // Nothing
         }
         try {
-            await execP(`cp -r ${tempDest}/mozilla-recommendation.json ${dest}/mozilla-recommendation.json`);
+            await copyFile(`${tempDest}/mozilla-recommendation.json`, `${dest}/mozilla-recommendation.json`);
         } catch (e) {
             // Nothing
         }

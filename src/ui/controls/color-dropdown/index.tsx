@@ -1,8 +1,9 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
+
+import {parseColorWithCache} from '../../../utils/color';
 import ColorPicker from '../color-picker';
 import DropDown from '../dropdown';
-import {parseColorWithCache} from '../../../utils/color';
 
 interface ColorDropDownProps {
     class?: string;
@@ -14,13 +15,15 @@ interface ColorDropDownProps {
     onReset: () => void;
 }
 
+interface ColorDropDownStore {
+    isOpen: boolean;
+    listNode: HTMLElement;
+    selectedNode: HTMLElement;
+}
+
 export default function ColorDropDown(props: ColorDropDownProps) {
     const context = getContext();
-    const store = context.store as {
-        isOpen: boolean;
-        listNode: HTMLElement;
-        selectedNode: HTMLElement;
-    };
+    const store: ColorDropDownStore = context.store;
 
     const labels = {
         DEFAULT: 'Default',

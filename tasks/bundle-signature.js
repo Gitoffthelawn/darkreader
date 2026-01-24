@@ -1,9 +1,11 @@
 // @ts-check
-import paths from './paths.js';
-import {createTask} from './task.js';
-import {copyFile, getPaths, readJSON, readFile, writeFile, fileExists} from './utils.js';
 import {createHash} from 'node:crypto';
-const {getDestDir, PLATFORM} = paths;
+import {readFile} from 'node:fs/promises';
+
+import {getDestDir} from './paths.js';
+import {PLATFORM} from './platform.js';
+import {createTask} from './task.js';
+import {copyFile, getPaths, readJSON, writeFile, fileExists} from './utils.js';
 
 function serializeHashManifest(entries) {
     const lines = [];
@@ -111,22 +113,27 @@ function serializeSfManifest(types, manifestMf) {
     return lines.join('\n');
 }
 
-async function fixManifest() {
+async function fixManifest(indent, settings) {
     const destDir = getDestDir({debug: false, platform: 'firefox'});
     const realPath = `${destDir}/manifest.json`;
     const manifest = await readJSON(realPath);
-    await writeFile(realPath, JSON.stringify(manifest, null, 2));
+    let string = JSON.stringify(manifest, null, indent);
+    if (settings === 1) {
+        string = string.replace('applications', 'browser_specific_settings');
+    }
+    await writeFile(realPath, string);
     return {
         realPath,
-        archivePath: 'manifest.json'
+        archivePath: 'manifest.json',
     };
 }
 
-async function createHashes(signatureVersion, version, order) {
+async function createHashes(signatureVersion, version, order, manifest) {
     const types = hashTypes(signatureVersion);
     const destDir = getDestDir({debug: false, platform: 'firefox'});
+    /** @type {Array<{archivePath: string; realPath?: string; isOptional?: boolean; integrity?: any}>} */
     const regular = [
-        await fixManifest(),
+        await fixManifest(manifest?.indent || 2, manifest?.settings),
         ...(await enumerateStandardPaths(destDir, order)),
     ];
     regular.push({
@@ -159,16 +166,16 @@ async function createHashes(signatureVersion, version, order) {
 /**
  * This utility function is written with readability in mind
  * It is a naiive implementation which does not take advantage of data streaming
- * and trivial parrallelism of the task.
+ * and trivial parallelism of the task.
  */
 async function signature({platforms, debug, version}) {
-    if (!platforms[PLATFORM.FIREFOX] || debug) {
+    if (!platforms[PLATFORM.FIREFOX_MV2] || debug) {
         throw new Error('Only Firefox builds support signed packages for now.');
     }
 
     const infoPath = `./integrity/firefox/${version}/info.json`;
-    const {type, order} = await readJSON(infoPath);
-    await createHashes(type, version, order);
+    const {type, order, manifest} = await readJSON(infoPath);
+    await createHashes(type, version, order, manifest);
 
     const destDir = getDestDir({debug, platform: 'firefox'});
     const rsa = `./integrity/firefox/${version}/mozilla.rsa`;

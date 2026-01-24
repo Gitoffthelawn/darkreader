@@ -1,11 +1,16 @@
-import {Extension} from './extension';
+import {canInjectScript, keepListeningToEvents} from '../background/utils/extension-api';
+import type {ColorScheme, DebugMessageBGtoCS, DebugMessageBGtoUI, DebugMessageCStoBG, ExtensionData, News, UserSettings} from '../definitions';
 import {getHelpURL, UNINSTALL_URL} from '../utils/links';
-import {canInjectScript} from '../background/utils/extension-api';
-import type {ExtensionData, Message, UserSettings} from '../definitions';
-import {MessageType} from '../utils/message';
+import {emulateColorScheme, isSystemDarkModeEnabled} from '../utils/media-query';
+import {DebugMessageTypeBGtoCS, DebugMessageTypeBGtoUI, DebugMessageTypeCStoBG} from '../utils/message';
+import {isFirefox} from '../utils/platform';
+
+import {Extension} from './extension';
 import {makeChromiumHappy} from './make-chromium-happy';
-import {logInfo} from './utils/log';
+import {setNewsForTesting} from './newsmaker';
+import {ASSERT} from './utils/log';
 import {sendLog} from './utils/sendLog';
+
 
 type TestMessage = {
     type: 'getManifest';
@@ -32,8 +37,19 @@ type TestMessage = {
     };
     id: number;
 } | {
-    type: 'createTab';
+    type: 'firefox-createTab';
     data: string;
+    id: number;
+} | {
+    type: 'firefox-getColorScheme';
+    id: number;
+} | {
+    type: 'firefox-emulateColorScheme';
+    data: ColorScheme;
+    id: number;
+} | {
+    type: 'setNews';
+    data: News[];
     id: number;
 };
 
@@ -52,30 +68,13 @@ declare const __LOG__: string | false;
 declare const __PORT__: number;
 declare const __TEST__: boolean;
 declare const __CHROMIUM_MV3__: boolean;
-declare const __FIREFOX__: boolean;
+declare const __FIREFOX_MV2__: boolean;
 
 if (__CHROMIUM_MV3__) {
     chrome.runtime.onInstalled.addListener(async () => {
-        try {
-            (chrome.scripting as any).unregisterContentScripts(() => {
-                (chrome.scripting as any).registerContentScripts([{
-                    id: 'proxy',
-                    matches: [
-                        '<all_urls>'
-                    ],
-                    js: [
-                        'inject/proxy.js',
-                    ],
-                    runAt: 'document_start',
-                    allFrames: true,
-                    persistAcrossSessions: true,
-                    world: 'MAIN',
-                }], () => logInfo('Registerd direct CSS proxy injector.'));
-            });
-        } catch (e) {
-            logInfo('Failed to register direct CSS proxy injector, falling back to other injection methods.');
-        }
+        Extension.isFirstLoad = true;
     });
+    keepListeningToEvents();
 }
 
 if (__WATCH__) {
@@ -101,16 +100,23 @@ if (__WATCH__) {
             }
             switch (message.type) {
                 case 'reload:css':
-                    chrome.runtime.sendMessage<Message>({type: MessageType.BG_CSS_UPDATE});
+                    chrome.runtime.sendMessage<DebugMessageBGtoUI>({type: DebugMessageTypeBGtoUI.CSS_UPDATE});
                     break;
                 case 'reload:ui':
-                    chrome.runtime.sendMessage<Message>({type: MessageType.BG_UI_UPDATE});
+                    chrome.runtime.sendMessage<DebugMessageBGtoUI>({type: DebugMessageTypeBGtoUI.UPDATE});
                     break;
                 case 'reload:full':
                     chrome.tabs.query({}, (tabs) => {
+                        const message: DebugMessageBGtoCS = {type: DebugMessageTypeBGtoCS.RELOAD};
+                        // Some contexts are not considered to be tabs and can not receive regular messages
+                        chrome.runtime.sendMessage<DebugMessageBGtoCS>(message);
                         for (const tab of tabs) {
                             if (canInjectScript(tab.url)) {
-                                chrome.tabs.sendMessage<Message>(tab.id!, {type: MessageType.BG_RELOAD});
+                                if (__CHROMIUM_MV3__) {
+                                    chrome.tabs.sendMessage<DebugMessageBGtoCS>(tab.id!, message).catch(() => { /* noop */ });
+                                    continue;
+                                }
+                                chrome.tabs.sendMessage<DebugMessageBGtoCS>(tab.id!, message);
                             }
                         }
                         chrome.runtime.reload();
@@ -141,7 +147,7 @@ if (__TEST__) {
     chrome.tabs.create({url: chrome.runtime.getURL('/ui/devtools/index.html'), active: false});
 
     let testTabId: number | null = null;
-    if (__FIREFOX__) {
+    if (__FIREFOX_MV2__) {
         chrome.tabs.create({url: 'about:blank', active: true}, ({id}) => testTabId = id!);
     }
 
@@ -187,25 +193,84 @@ if (__TEST__) {
                 case 'getChromeStorage': {
                     const keys = message.data.keys;
                     const region = message.data.region;
-                    chrome.storage[region].get(keys, respond);
+                    chrome.storage[region].get(keys as any, respond);
                     break;
                 }
-                case 'createTab':
+                case 'setNews':
+                    setNewsForTesting(message.data);
+                    respond();
+                    break;
+                // TODO(anton): remove this once Firefox supports tab.eval() via WebDriver BiDi
+                case 'firefox-createTab':
+                    ASSERT('Firefox-specific function', isFirefox);
                     chrome.tabs.update(testTabId!, {url: message.data, active: true}, () => respond());
                     break;
+                case 'firefox-getColorScheme': {
+                    ASSERT('Firefox-specific function', isFirefox);
+                    respond(isSystemDarkModeEnabled() ? 'dark' : 'light');
+                    break;
+                }
+                case 'firefox-emulateColorScheme': {
+                    ASSERT('Firefox-specific function', isFirefox);
+                    emulateColorScheme(message.data);
+                    respond();
+                    break;
+                }
             }
         } catch (err) {
             socket.send(JSON.stringify({error: String(err), original: e.data}));
         }
     };
+
+    chrome.downloads.onCreated.addListener(({id, mime, url, danger, paused}) => {
+        // Cancel download
+        chrome.downloads.cancel(id);
+
+        try {
+            const {protocol, origin} = new URL(url);
+            const realOrigin = (new URL(chrome.runtime.getURL(''))).origin;
+            const ok = paused === false && danger === 'safe' && protocol === 'blob:' && origin === realOrigin;
+            socket.send(JSON.stringify({
+                data: {
+                    type: 'download',
+                    ok,
+                    mime,
+                },
+                id: null,
+            }));
+        } catch (e) {
+            // Do nothing
+        }
+    });
 }
 
 if (__DEBUG__ && __LOG__) {
-    chrome.runtime.onMessage.addListener((message: Message) => {
-        if (message.type === 'cs-log') {
+    chrome.runtime.onMessage.addListener((message: DebugMessageCStoBG) => {
+        if (message.type === DebugMessageTypeCStoBG.LOG) {
             sendLog(message.data.level, message.data.log);
         }
     });
 }
 
 makeChromiumHappy();
+
+function writeInstallationVersion(
+    storage: chrome.storage.SyncStorageArea | chrome.storage.LocalStorageArea,
+    details: chrome.runtime.InstalledDetails,
+) {
+    storage.get<Record<string, any>>({installation: {version: ''}}, (data) => {
+        if (data?.installation?.version) {
+            return;
+        }
+        storage.set({installation: {
+            date: Date.now(),
+            reason: details.reason,
+            version: details.previousVersion ?? chrome.runtime.getManifest().version,
+        }});
+    });
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+    writeInstallationVersion(chrome.storage.local, details);
+    writeInstallationVersion(chrome.storage.sync, details);
+});

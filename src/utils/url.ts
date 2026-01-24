@@ -1,5 +1,6 @@
 import type {UserSettings, TabInfo} from '../definitions';
-import {isIPV6, compareIPV6} from './ipv6';
+
+import {cachedFactory} from './cache';
 
 declare const __THUNDERBIRD__: boolean;
 
@@ -79,7 +80,7 @@ export function getURLHostOrProtocol($url: string): string {
     return url.protocol;
 }
 
-export function compareURLPatterns(a: string, b: string) {
+export function compareURLPatterns(a: string, b: string): number {
     return a.localeCompare(b);
 }
 
@@ -88,7 +89,7 @@ export function compareURLPatterns(a: string, b: string) {
  * @param url Site URL.
  * @paramlist List to search into.
  */
-export function isURLInList(url: string, list: string[]) {
+export function isURLInList(url: string, list: string[]): boolean {
     for (let i = 0; i < list.length; i++) {
         if (isURLMatched(url, list[i])) {
             return true;
@@ -103,112 +104,204 @@ export function isURLInList(url: string, list: string[]) {
  * @param urlTemplate URL template ("google.*", "youtube.com" etc).
  */
 export function isURLMatched(url: string, urlTemplate: string): boolean {
-    const isFirstIPV6 = isIPV6(url);
-    const isSecondIPV6 = isIPV6(urlTemplate);
-    if (isFirstIPV6 && isSecondIPV6) {
-        return compareIPV6(url, urlTemplate);
-    } else if (!isFirstIPV6 && !isSecondIPV6) {
-        const regex = createUrlRegex(urlTemplate);
-        return regex !== null && Boolean(url.match(regex));
+    if (isRegExp(urlTemplate)) {
+        const regexp = createRegExp(urlTemplate);
+        return regexp ? regexp.test(url) : false;
     }
-    return false;
+    return matchURLPattern(url, urlTemplate);
 }
 
-function createUrlRegex(urlTemplate: string): RegExp | null {
+const URL_CACHE_SIZE = 32;
+const prepareURL = cachedFactory((url: string) => {
+    let parsed: URL;
     try {
-        urlTemplate = urlTemplate.trim();
-        const exactBeginning = (urlTemplate[0] === '^');
-        const exactEnding = (urlTemplate[urlTemplate.length - 1] === '$');
-        const hasLastSlash = /\/\$?$/.test(urlTemplate);
-
-        urlTemplate = (urlTemplate
-            .replace(/^\^/, '') // Remove ^ at start
-            .replace(/\$$/, '') // Remove $ at end
-            .replace(/^.*?\/{2,3}/, '') // Remove scheme
-            .replace(/\?.*$/, '') // Remove query
-            .replace(/\/$/, '') // Remove last slash
-        );
-
-        let slashIndex: number;
-        let beforeSlash: string;
-        let afterSlash: string | undefined;
-        if ((slashIndex = urlTemplate.indexOf('/')) >= 0) {
-            beforeSlash = urlTemplate.substring(0, slashIndex); // google.*
-            afterSlash = urlTemplate.replace(/\$/g, '').substring(slashIndex); // /login/abc
-        } else {
-            beforeSlash = urlTemplate.replace(/\$/g, '');
-        }
-
-        //
-        // SCHEME and SUBDOMAINS
-
-        let result = (exactBeginning ?
-            '^(.*?\\:\\/{2,3})?' // Scheme
-            : '^(.*?\\:\\/{2,3})?([^\/]*?\\.)?' // Scheme and subdomains
-        );
-
-        //
-        // HOST and PORT
-
-        const hostParts = beforeSlash.split('.');
-        result += '(';
-        for (let i = 0; i < hostParts.length; i++) {
-            if (hostParts[i] === '*') {
-                hostParts[i] = '[^\\.\\/]+?';
-            }
-        }
-        result += hostParts.join('\\.');
-        result += ')';
-
-        //
-        // PATH and QUERY
-
-        if (afterSlash) {
-            result += '(';
-            result += afterSlash.replace('/', '\\/');
-            result += ')';
-        }
-
-        result += (exactEnding ?
-            '(\\/?(\\?[^\/]*?)?)$' // All following queries
-            : `(\\/${hasLastSlash ? '' : '?'}.*?)$` // All following paths and queries
-        );
-
-        //
-        // Result
-
-        return new RegExp(result, 'i');
-    } catch (e) {
+        parsed = new URL(url);
+    } catch (err) {
         return null;
     }
+    const {hostname, pathname, protocol, port} = parsed;
+    const hostParts = hostname.split('.').reverse();
+    const pathParts = pathname.split('/').slice(1);
+    if (!pathParts[pathParts.length - 1]) {
+        pathParts.splice(pathParts.length - 1, 1);
+    }
+    return {
+        hostParts,
+        pathParts,
+        port,
+        protocol,
+    };
+}, URL_CACHE_SIZE);
+
+const URL_MATCH_CACHE_SIZE = 32 * 1024;
+const preparePattern = cachedFactory((pattern: string) => {
+    if (!pattern) {
+        return null;
+    }
+
+    const exactStart = pattern.startsWith('^');
+    const exactEnd = pattern.endsWith('$');
+    if (exactStart) {
+        pattern = pattern.substring(1);
+    }
+    if (exactEnd) {
+        pattern = pattern.substring(0, pattern.length - 1);
+    }
+
+    let protocol = '';
+    const protocolIndex = pattern.indexOf('://');
+    if (protocolIndex > 0) {
+        protocol = pattern.substring(0, protocolIndex + 1);
+        pattern = pattern.substring(protocolIndex + 3);
+    }
+
+    const slashIndex = pattern.indexOf('/');
+    const host = slashIndex < 0 ? pattern : pattern.substring(0, slashIndex);
+
+    let hostName = host;
+
+    let isIPv6 = false;
+    let ipV6End = -1;
+    if (host.startsWith('[')) {
+        ipV6End = host.indexOf(']');
+        if (ipV6End > 0) {
+            isIPv6 = true;
+        }
+    }
+
+    let port = '*';
+    const portIndex = host.lastIndexOf(':');
+    if (portIndex >= 0 && (!isIPv6 || ipV6End < portIndex)) {
+        hostName = host.substring(0, portIndex);
+        port = host.substring(portIndex + 1);
+    }
+
+    if (isIPv6) {
+        try {
+            const ipV6URL = new URL(`http://${hostName}`);
+            hostName = ipV6URL.hostname;
+        } catch (err) {
+        }
+    }
+
+    const hostParts = hostName.split('.').reverse();
+
+    const path = slashIndex < 0 ? '' : pattern.substring(slashIndex + 1);
+    const pathParts = path.split('/');
+    if (!pathParts[pathParts.length - 1]) {
+        pathParts.splice(pathParts.length - 1, 1);
+    }
+
+    return {
+        hostParts,
+        pathParts,
+        port,
+        exactStart,
+        exactEnd,
+        protocol,
+    };
+}, URL_MATCH_CACHE_SIZE);
+
+function matchURLPattern(url: string, pattern: string) {
+    const u = prepareURL(url);
+    const p = preparePattern(pattern);
+
+    if (
+        !(u && p)
+        || (p.hostParts.length > u.hostParts.length)
+        || (p.exactStart && p.hostParts.length !== u.hostParts.length)
+        || (p.exactEnd && p.pathParts.length !== u.pathParts.length)
+        || (p.port !== '*' && p.port !== u.port)
+        || (p.protocol && p.protocol !== u.protocol)
+    ) {
+        return false;
+    }
+
+    for (let i = 0; i < p.hostParts.length; i++) {
+        const pHostPart = p.hostParts[i];
+        const uHostPart = u.hostParts[i];
+        if (pHostPart !== '*' && pHostPart !== uHostPart) {
+            return false;
+        }
+    }
+
+    if (
+        p.hostParts.length >= 2
+        && p.hostParts.at(-1) !== '*'
+        && (
+            p.hostParts.length < u.hostParts.length - 1
+            || (
+                p.hostParts.length === u.hostParts.length - 1
+                && u.hostParts.at(-1) !== 'www'
+            )
+        )
+    ) {
+        return false;
+    }
+
+    if (p.pathParts.length === 0) {
+        return true;
+    }
+
+    if (p.pathParts.length > u.pathParts.length) {
+        return false;
+    }
+
+    for (let i = 0; i < p.pathParts.length; i++) {
+        const pPathPart = p.pathParts[i];
+        const uPathPart = u.pathParts[i];
+        if (pPathPart !== '*' && pPathPart !== uPathPart) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
-export function isPDF(url: string) {
-    if (url.includes('.pdf')) {
-        if (url.includes('?')) {
-            url = url.substring(0, url.lastIndexOf('?'));
-        }
-        if (url.includes('#')) {
-            url = url.substring(0, url.lastIndexOf('#'));
-        }
-        if (
-            (url.match(/(wikipedia|wikimedia)\.org/i) && url.match(/(wikipedia|wikimedia)\.org\/.*\/[a-z]+\:[^\:\/]+\.pdf/i)) ||
-            (url.match(/timetravel\.mementoweb\.org\/reconstruct/i) && url.match(/\.pdf$/i)) ||
-            (url.match(/dropbox\.com\/s\//i) && url.match(/\.pdf$/i))
-        ) {
-            return false;
-        }
-        if (url.endsWith('.pdf')) {
-            for (let i = url.length; i > 0; i--) {
-                if (url[i] === '=') {
-                    return false;
-                } else if (url[i] === '/') {
-                    return true;
-                }
+function isRegExp(pattern: string) {
+    return pattern.startsWith('/') && pattern.endsWith('/') && pattern.length > 2;
+}
+
+const REGEXP_CACHE_SIZE = 1024;
+const createRegExp = cachedFactory((pattern: string) => {
+    if (pattern.startsWith('/')) {
+        pattern = pattern.substring(1);
+    }
+    if (pattern.endsWith('/')) {
+        pattern = pattern.substring(0, pattern.length - 1);
+    }
+    try {
+        return new RegExp(pattern);
+    } catch (err) {
+        return null;
+    }
+}, REGEXP_CACHE_SIZE);
+
+export function isPDF(url: string): boolean {
+    try {
+        const {hostname, pathname} = new URL(url);
+        if (pathname.includes('.pdf')) {
+            if (
+                (hostname.match(/(wikipedia|wikimedia)\.org$/i) && pathname.match(/^\/.*\/[a-z]+\:[^\:\/]+\.pdf/i)) ||
+                (hostname.match(/timetravel\.mementoweb\.org$/i) && pathname.match(/^\/reconstruct/i) && pathname.match(/\.pdf$/i)) ||
+                (hostname.match(/dropbox\.com$/i) && pathname.match(/^\/s\//i) && pathname.match(/\.pdf$/i))
+            ) {
+                return false;
             }
-        } else {
-            return false;
+            if (pathname.endsWith('.pdf')) {
+                for (let i = pathname.length; i >= 0; i--) {
+                    if (pathname[i] === '=') {
+                        return false;
+                    } else if (pathname[i] === '/') {
+                        return true;
+                    }
+                }
+            } else {
+                return false;
+            }
         }
+    } catch (e) {
+        // Do nothing
     }
     return false;
 }
@@ -228,11 +321,11 @@ export function isURLEnabled(url: string, userSettings: UserSettings, {isProtect
     if (isPDF(url)) {
         return userSettings.enableForPDF;
     }
-    const isURLInUserList = isURLInList(url, userSettings.siteList);
-    const isURLInEnabledList = isURLInList(url, userSettings.siteListEnabled);
+    const isURLInDisabledList = isURLInList(url, userSettings.disabledFor);
+    const isURLInEnabledList = isURLInList(url, userSettings.enabledFor);
 
-    if (userSettings.applyToListedOnly) {
-        return isURLInEnabledList || isURLInUserList;
+    if (!userSettings.enabledByDefault) {
+        return isURLInEnabledList;
     }
     if (isURLInEnabledList) {
         return true;
@@ -240,7 +333,7 @@ export function isURLEnabled(url: string, userSettings: UserSettings, {isProtect
     if (isInDarkList || (userSettings.detectDarkTheme && isDarkThemeDetected)) {
         return false;
     }
-    return !isURLInUserList;
+    return !isURLInDisabledList;
 }
 
 export function isFullyQualifiedDomain(candidate: string): boolean {
@@ -260,7 +353,7 @@ export function isFullyQualifiedDomainWildcard(candidate: string): boolean {
     return true;
 }
 
-export function fullyQualifiedDomainMatchesWildcard(wildcard: string, candidate: string) {
+export function fullyQualifiedDomainMatchesWildcard(wildcard: string, candidate: string): boolean {
     const wildcardLabels = wildcard.toLowerCase().split('.');
     const candidateLabels = candidate.toLowerCase().split('.');
     if (candidateLabels.length < wildcardLabels.length) {
@@ -276,6 +369,6 @@ export function fullyQualifiedDomainMatchesWildcard(wildcard: string, candidate:
     return true;
 }
 
-export function isLocalFile(url: string) {
-    return url && url.startsWith('file:///');
+export function isLocalFile(url: string): boolean {
+    return Boolean(url) && url.startsWith('file:///');
 }

@@ -1,10 +1,10 @@
 import '../support/polyfills';
 import {DEFAULT_THEME} from '../../../src/defaults';
-import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../../../src/inject/dynamic-theme';
-import {multiline, timeout} from '../support/test-utils';
 import type {DynamicThemeFix} from '../../../src/definitions';
 import {FilterMode} from '../../../src/generators/css-filter';
+import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../../../src/inject/dynamic-theme';
 import {removeNode} from '../../../src/inject/utils/dom';
+import {multiline, timeout} from '../support/test-utils';
 
 let container: HTMLElement;
 
@@ -40,7 +40,7 @@ describe('FIXES', () => {
             ignoreInlineStyle: [],
             ignoreImageAnalysis: [],
             disableStyleSheetsProxy: false,
-
+            disableCustomElementRegistryProxy: false,
         }];
         createOrUpdateDynamicTheme(DEFAULT_THEME, fixes, false);
         expect(getComputedStyle(container.querySelector('.logo')).filter).toBe('invert(1) hue-rotate(180deg) contrast(0.9)');
@@ -57,7 +57,7 @@ describe('FIXES', () => {
             ignoreInlineStyle: [],
             ignoreImageAnalysis: [],
             disableStyleSheetsProxy: false,
-
+            disableCustomElementRegistryProxy: false,
         }];
         createOrUpdateDynamicTheme(DEFAULT_THEME, fixes, false);
         expect(getComputedStyle(container.querySelector('.text')).color).toBe('rgb(255, 0, 0)');
@@ -74,14 +74,14 @@ describe('FIXES', () => {
             ignoreInlineStyle: ['.text'],
             ignoreImageAnalysis: [],
             disableStyleSheetsProxy: false,
-
+            disableCustomElementRegistryProxy: false,
         }];
         createOrUpdateDynamicTheme(DEFAULT_THEME, fixes, false);
         expect(getComputedStyle(container.querySelector('.text')).backgroundColor).toBe('rgb(128, 0, 128)');
     });
 
     it('should ignore styling when darkreader-lock detected', async () => {
-        document.head.innerHTML = '<meta name="darkreader-lock"></meta>',
+        document.head.innerHTML = '<meta name="darkreader-lock">',
         container.innerHTML = multiline(
             '<style>',
             '    body {',

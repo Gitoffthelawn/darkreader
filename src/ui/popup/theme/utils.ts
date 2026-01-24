@@ -1,8 +1,12 @@
-import type {Theme} from '../../../definitions';
+import type {Theme, ViewProps} from '../../../definitions';
 import {isURLInList} from '../../../utils/url';
-import type {ViewProps} from '../types';
 
-export function getCurrentThemePreset(props: ViewProps) {
+interface ThemePresets {
+    theme: Theme;
+    change: (config: Partial<Theme>) => void;
+}
+
+export function getCurrentThemePreset(props: ViewProps): ThemePresets {
     const custom = props.data.settings.customThemes.find(
         ({url}) => isURLInList(props.data.activeTab.url, url)
     );

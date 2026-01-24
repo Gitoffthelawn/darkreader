@@ -1,9 +1,9 @@
 import {TestEnvironment} from 'jest-environment-node';
 import {launch, connect} from 'puppeteer-core';
-import {cmd} from 'web-ext';
 import {WebSocketServer} from 'ws';
+
 import {generateHTMLCoverageReports} from './coverage.js';
-import {getChromePath, getFirefoxPath, chromeExtensionDebugDir, chromeMV3ExtensionDebugDir, firefoxExtensionDebugDir} from './paths.js';
+import {getChromePath, getFirefoxPath, chromeMV3ExtensionDebugDir, chromePlusExtensionDebugDir, firefoxExtensionDebugDir, getEdgePath} from './paths.js';
 import {createTestServer, generateRandomId} from './server.js';
 
 const TEST_SERVER_PORT = 8891;
@@ -17,7 +17,7 @@ export default class CustomJestEnvironment extends TestEnvironment {
     pageEventListeners = new Map();
 
     /** @type {Browser} */
-    broser;
+    browser;
     /** @type {WebSocketServer} */
     messageServer;
 
@@ -48,7 +48,7 @@ export default class CustomJestEnvironment extends TestEnvironment {
 
         // Wait for tabs to load?
 
-        this.assignTestGlobals();
+        this.assignTestGlobals(this.global, this.testServer, this.corsServer, this.page);
     }
 
     /**
@@ -65,10 +65,10 @@ export default class CustomJestEnvironment extends TestEnvironment {
      */
     async launchBrowser() {
         let browser;
-        if (this.global.product === 'chrome') {
-            browser = await this.launchChrome(true);
+        if (this.global.product === 'edge') {
+            browser = await this.launchEdge();
         } else if (this.global.product === 'chrome-mv3') {
-            browser = await this.launchChrome(false);
+            browser = await this.launchChrome();
         } else if (this.global.product === 'firefox') {
             browser = await this.launchFirefox();
         }
@@ -80,8 +80,8 @@ export default class CustomJestEnvironment extends TestEnvironment {
     /**
      * @returns {Promise<Browser>}
      */
-    async launchChrome(mv2) {
-        const extensionDir = mv2 ? chromeExtensionDebugDir : chromeMV3ExtensionDebugDir;
+    async launchChrome() {
+        const extensionDir = chromeMV3ExtensionDebugDir;
         let executablePath;
         try {
             executablePath = await getChromePath();
@@ -91,13 +91,35 @@ export default class CustomJestEnvironment extends TestEnvironment {
         // Explanation of these options:
         // https://pptr.dev/guides/chrome-extensions
         return await launch({
-            executablePath,
-            headless: false,
             args: [
-                `--disable-extensions-except=${extensionDir}`,
-                `--load-extension=${extensionDir}`,
                 '--show-component-extension-options',
             ],
+            enableExtensions: [extensionDir],
+            executablePath,
+            headless: false,
+            pipe: true,
+        });
+    }
+
+    /**
+     * @returns {Promise<Browser>}
+     */
+    async launchEdge() {
+        const extensionDir = chromePlusExtensionDebugDir;
+        let executablePath;
+        try {
+            executablePath = await getEdgePath();
+        } catch (e) {
+            console.error(e);
+        }
+        return await launch({
+            args: [
+                '--show-component-extension-options',
+            ],
+            enableExtensions: [extensionDir],
+            executablePath,
+            headless: false,
+            pipe: true,
         });
     }
 
@@ -105,15 +127,16 @@ export default class CustomJestEnvironment extends TestEnvironment {
      * @returns {Promise<Browser>}
      */
     async launchFirefoxPuppeteer() {
-        const retries = 100;
-        const retryIntervalInMs = 100;
+        const retries = 10;
+        const retryIntervalInMs = 500;
         for (let i = 0; i < retries; i++) {
+            await new Promise((resolve) => setTimeout(resolve, retryIntervalInMs));
             try {
                 return await connect({
                     browserURL: `http://localhost:${FIREFOX_DEVTOOLS_PORT}`,
                 });
-            } catch (e) {
-                await new Promise((resolve) => setTimeout(resolve, retryIntervalInMs));
+            } catch (err) {
+                console.log(`Firefox connection attempt ${i + 1} failed:`, e);
             }
         }
         throw new Error('Failed to connect to Puppeteer');
@@ -126,6 +149,7 @@ export default class CustomJestEnvironment extends TestEnvironment {
         // We need to manually launch Firefox via cmd.run() to install extension
         // because Firefox does not support installing via CLI arguments
         const firefox = await getFirefoxPath();
+        const {cmd} = await import('web-ext');
         await cmd.run({
             sourceDir: firefoxExtensionDebugDir,
             firefox,
@@ -184,6 +208,7 @@ export default class CustomJestEnvironment extends TestEnvironment {
         const promise = this.awaitForEvent(`ready-${pathname}`);
         // Firefox does not resolve promise returned by page.goto()
         // Doesn't resolve due to https://github.com/puppeteer/puppeteer/issues/6616
+        // TODO(anton): remove this once Firefox supports tab.eval() via WebDriver BiDi
         if (this.global.product !== 'firefox') {
             await this.page.goto(url, gotoOptions);
         } else {
@@ -205,81 +230,119 @@ export default class CustomJestEnvironment extends TestEnvironment {
         resolves && resolves.forEach((r) => r());
     }
 
-    assignTestGlobals() {
-        this.global.getColorScheme = async () => {
-            if (this.global.product === 'firefox') {
-                throw new Error('Firefox does not support page.evaluate()');
+    /**
+     * This function is evaluated within browser's page context
+     * after being passed to page.evaluate()
+     * It can use methods which will be defined in the page context,
+     * but can not use variables defined in this file besides those passed into it.
+     */
+    async checkPageStylesInBrowserContext(expectations) {
+        const checkOne = (expectation) => {
+            const [selector, cssAttributeName, expectedValue] = expectation;
+            const selector_ = Array.isArray(selector) ? selector : [selector];
+            let element = document;
+            for (const part of selector_) {
+                if (element instanceof HTMLIFrameElement) {
+                    element = element.contentDocument;
+                }
+                if (element.shadowRoot instanceof ShadowRoot) {
+                    element = element.shadowRoot;
+                }
+                if (part === 'document') {
+                    element = element.documentElement;
+                } else {
+                    element = element.querySelector(part);
+                }
+                if (!element) {
+                    return `Could not find element ${part}`;
+                }
             }
-            const isDark = await this.page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches);
+            const style = getComputedStyle(element);
+            if (style[cssAttributeName] !== expectedValue) {
+                return `Expected ${selector_.join(' ')} '${cssAttributeName}' to be '${expectedValue}', but got '${style[cssAttributeName]}'`;
+            }
+        };
+
+        const checkAll = () => {
+            /** @type{Array<[number, string]>} */
+            const errors = [];
+            for (let i = 0; i < expectations.length; i++) {
+                const error = checkOne(expectations[i]);
+                if (error) {
+                    errors.push(error);
+                }
+            }
+            return errors;
+        };
+
+        let timeout = 10;
+        let errors = checkAll();
+        for (let i = 0; (errors.length !== 0) && (i < 10); i++) {
+            timeout *= 2;
+            await new Promise((r) => requestIdleCallback(r, {timeout}));
+            errors = checkAll();
+        }
+        return errors;
+    }
+
+    assignTestGlobals(global, testServer, corsServer, page) {
+        global.getColorScheme = async () => {
+            if (global.product === 'firefox') {
+                return await global.backgroundUtils.getColorScheme();
+            }
+            const isDark = await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches);
             return isDark ? 'dark' : 'light';
         };
 
-        this.global.evaluateScript = async (script) => {
-            if (this.global.product === 'firefox') {
+        global.pageUtils.evaluateScript = async (script) => {
+            if (global.product === 'firefox') {
                 if (typeof script !== 'function') {
                     throw new Error('Not implemented');
                 }
-                return await this.global.pageUtils.evaluate(`(${script.toString()})()`);
+                return await global.pageUtils.evaluate(`(${script.toString()})()`);
             }
-            return await this.page.evaluate(script);
+            return await page.evaluate(script);
         };
 
-        this.global.expectPageStyles = async (expect, expectations) => {
-            if (this.global.product === 'firefox') {
-                const errors = await this.global.pageUtils.expectPageStyles(expectations);
+        global.expectPageStyles = async (expect, expectations) => {
+            if (global.product === 'firefox') {
+                const errors = await global.pageUtils.expectPageStyles(expectations);
                 expect(errors.length).toBe(0);
                 return;
             }
             if (!Array.isArray(expectations[0])) {
                 expectations = [expectations];
             }
-            const promises = [];
-            for (const [selector, cssAttributeName, expectedValue] of expectations) {
-                const promise = expect(this.page.evaluate(
-                    (selector, cssAttributeName) => {
-                        let element = document;
-                        if (!Array.isArray(selector)) {
-                            selector = [selector];
-                        }
-                        for (const part of selector) {
-                            if (element instanceof HTMLIFrameElement) {
-                                element = element.contentDocument;
-                            }
-                            if (part === 'document') {
-                                element = element.documentElement;
-                            } else {
-                                element = element.querySelector(part);
-                            }
-                        }
-                        const style = getComputedStyle(element);
-                        return style[cssAttributeName];
-                    },
-                    selector, cssAttributeName
-                )).resolves.toBe(expectedValue);
-                promises.push(promise);
-            }
-            return Promise.all(promises);
+            const errors = await page.evaluate(this.checkPageStylesInBrowserContext, expectations);
+            expect(errors.join('\n')).toBe('');
         };
 
-        this.global.emulateMedia = async (name, value) => {
-            if (this.global.product === 'firefox') {
+        global.emulateColorScheme = async (colorScheme) => {
+            if (global.product === 'firefox') {
+                await global.pageUtils.emulateColorScheme(colorScheme);
+                await global.backgroundUtils.emulateColorScheme(colorScheme);
+                const newPageColorScheme = await global.backgroundUtils.getColorScheme();
+                const newBGColorScheme = await global.pageUtils.getColorScheme();
+                if (newPageColorScheme !== colorScheme || newBGColorScheme !== colorScheme) {
+                    throw new Error('Failed to apply new color scheme');
+                }
                 return;
             }
-            await this.page.emulateMediaFeatures([{name, value}]);
-            if (this.global.product === 'chrome') {
+            await page.emulateMediaFeatures([{name: 'prefers-color-scheme', value: colorScheme}]);
+            if (global.product === 'edge') {
                 const page = await this.getChromiumMV2BackgroundPage();
-                await page.emulateMediaFeatures([{name, value}]);
+                await page.emulateMediaFeatures([{name: 'prefers-color-scheme', value: colorScheme}]);
             }
         };
 
-        this.global.loadTestPage = async (paths, gotoOptions) => {
+        global.loadTestPage = async (paths, gotoOptions) => {
             const {cors, ...testPaths} = paths;
-            this.testServer.setPaths(testPaths);
-            cors && this.corsServer.setPaths(cors);
+            testServer.setPaths(testPaths);
+            cors && corsServer.setPaths(cors);
             await this.openTestPage(`http://localhost:${TEST_SERVER_PORT}`, gotoOptions);
         };
 
-        this.global.corsURL = this.corsServer.url;
+        global.corsURL = corsServer.url;
     }
 
     /**
@@ -299,6 +362,8 @@ export default class CustomJestEnvironment extends TestEnvironment {
             const pageSockets = new Set();
             const resolvers = new Map();
             const rejectors = new Map();
+
+            let onDownloadCallback = null;
 
             wsServer.on('connection', async (ws) => {
                 ws.on('message', (data) => {
@@ -329,6 +394,10 @@ export default class CustomJestEnvironment extends TestEnvironment {
                             }
                         }
                         this.onPageEventResponse(message.data.uuid);
+                    } else if (message.id === null && message.data && message.data.type === 'download') {
+                        if (onDownloadCallback) {
+                            onDownloadCallback(message.data);
+                        }
                     } else if (message.error) {
                         const reject = rejectors.get(message.id);
                         reject(message.error);
@@ -372,18 +441,23 @@ export default class CustomJestEnvironment extends TestEnvironment {
 
             async function applyDevtoolsConfig(type, fixes) {
                 const promise = awaitForEvent('darkreader-dynamic-theme-ready');
-                await sendToDevTools(type, fixes);
-                await promise;
+                await Promise.all([
+                    sendToDevTools(type, fixes),
+                    promise,
+                ]);
             }
 
             this.global.popupUtils = {
-                click: async (selector) => await sendToPopup('click', selector),
-                exists: async (selector) => await sendToPopup('exists', selector),
+                saveFile: async (name, content) => sendToPopup('popup-saveFile', {name, content}),
+                click: async (selector) => await sendToPopup('popup-click', selector),
+                exists: async (selector) => await sendToPopup('popup-exists', selector),
             };
 
             this.global.devtoolsUtils = {
-                paste: async (fixes) => await applyDevtoolsConfig('debug-devtools-paste', fixes),
-                reset: async () => await applyDevtoolsConfig('debug-devtools-reset'),
+                click: async (selector) => await sendToDevTools('devtools-click', selector),
+                exists: async (selector) => await sendToDevTools('devtools-exists', selector),
+                paste: async (fixes) => await applyDevtoolsConfig('devtools-paste', fixes),
+                reset: async () => await applyDevtoolsConfig('devtools-reset'),
             };
 
             this.global.backgroundUtils = {
@@ -392,12 +466,38 @@ export default class CustomJestEnvironment extends TestEnvironment {
                 changeChromeStorage: async (region, data) => await sendToBackground('changeChromeStorage', {region, data}),
                 getChromeStorage: async (region, keys) => await sendToBackground('getChromeStorage', {region, keys}),
                 getManifest: async () => await sendToBackground('getManifest'),
-                createTab: async (url) => await sendToBackground('createTab', url),
+                getColorScheme: async () => {
+                    if (this.global.product !== 'firefox') {
+                        throw new Error('Not supported');
+                    }
+                    return await sendToBackground('firefox-getColorScheme');
+                },
+                createTab: async (url) => {
+                    if (this.global.product !== 'firefox') {
+                        throw new Error('Not supported');
+                    }
+                    await sendToBackground('firefox-createTab', url);
+                },
+                emulateColorScheme: async (colorScheme) => {
+                    if (this.global.product !== 'firefox') {
+                        throw new Error('Not supported');
+                    }
+                    await sendToBackground('firefox-emulateColorScheme', colorScheme);
+                },
+                setNews: async (news) => await sendToBackground('setNews', news),
+                onDownload: (callback) => onDownloadCallback = callback,
             };
 
             this.global.pageUtils = {
                 evaluate: async (script) => await sendToPage('firefox-eval', script),
                 expectPageStyles: async (expectations) => await sendToPage('firefox-expectPageStyles', expectations),
+                emulateColorScheme: async (colorScheme) => await sendToPage('firefox-emulateColorScheme', colorScheme),
+                getColorScheme: async () => {
+                    if (this.global.product !== 'firefox') {
+                        throw new Error('Not supported');
+                    }
+                    return await sendToPage('firefox-getColorScheme');
+                },
             };
 
             this.global.awaitForEvent = awaitForEvent;

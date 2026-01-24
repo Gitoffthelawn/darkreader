@@ -1,5 +1,6 @@
 import {DEFAULT_SETTINGS, DEFAULT_THEME} from '../defaults';
 import type {UserSettings, Theme, ThemePreset, CustomSiteConfig, TimeSettings, LocationSettings, Automation} from '../definitions';
+
 import {AutomationMode} from './automation';
 
 function isBoolean(x: any): x is boolean {
@@ -83,7 +84,12 @@ function createValidator() {
     return {validateProperty, validateArray, errors};
 }
 
-export function validateSettings(settings: Partial<UserSettings>) {
+interface SettingValidationResult {
+    settings: Partial<UserSettings>;
+    errors: string[];
+}
+
+export function validateSettings(settings: Partial<UserSettings>): SettingValidationResult {
     if (!isPlainObject(settings)) {
         return {errors: ['Settings are not a plain object'], settings: DEFAULT_SETTINGS};
     }
@@ -96,6 +102,8 @@ export function validateSettings(settings: Partial<UserSettings>) {
         const {errors: themeErrors} = validateTheme(theme);
         return themeErrors.length === 0;
     };
+
+    validateProperty(settings, 'schemeVersion', isNumber, DEFAULT_SETTINGS);
 
     validateProperty(settings, 'enabled', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'fetchNews', isBoolean, DEFAULT_SETTINGS);
@@ -128,12 +136,12 @@ export function validateSettings(settings: Partial<UserSettings>) {
         return presetValidator.errors.length === 0;
     });
 
-    validateProperty(settings, 'siteList', isArray, DEFAULT_SETTINGS);
-    validateArray(settings, 'siteList', isNonEmptyString);
-    validateProperty(settings, 'siteListEnabled', isArray, DEFAULT_SETTINGS);
-    validateArray(settings, 'siteListEnabled', isNonEmptyString);
+    validateProperty(settings, 'enabledFor', isArray, DEFAULT_SETTINGS);
+    validateArray(settings, 'enabledFor', isNonEmptyString);
+    validateProperty(settings, 'disabledFor', isArray, DEFAULT_SETTINGS);
+    validateArray(settings, 'disabledFor', isNonEmptyString);
 
-    validateProperty(settings, 'applyToListedOnly', isBoolean, DEFAULT_SETTINGS);
+    validateProperty(settings, 'enabledByDefault', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'changeBrowserTheme', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'syncSettings', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'syncSitesFixes', isBoolean, DEFAULT_SETTINGS);
@@ -171,6 +179,7 @@ export function validateSettings(settings: Partial<UserSettings>) {
     }, DEFAULT_SETTINGS);
 
     validateProperty(settings, 'previewNewDesign', isBoolean, DEFAULT_SETTINGS);
+    validateProperty(settings, 'previewNewestDesign', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'enableForPDF', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'enableForProtectedPages', isBoolean, DEFAULT_SETTINGS);
     validateProperty(settings, 'enableContextMenus', isBoolean, DEFAULT_SETTINGS);
@@ -179,7 +188,12 @@ export function validateSettings(settings: Partial<UserSettings>) {
     return {errors, settings};
 }
 
-export function validateTheme(theme: Partial<Theme> | null | undefined) {
+interface ThemeValidationResult {
+    theme: Partial<Theme>;
+    errors: string[];
+}
+
+export function validateTheme(theme: Partial<Theme> | null | undefined): ThemeValidationResult {
     if (!isPlainObject(theme)) {
         return {errors: ['Theme is not a plain object'], theme: DEFAULT_THEME};
     }

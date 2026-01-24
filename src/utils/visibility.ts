@@ -3,7 +3,7 @@
  * GitHub issue: https://github.com/darkreader/darkreader/issues/10004
  * GitHub PR: https://github.com/darkreader/darkreader/pull/10047
  *
- * Doue to the intntional breakage introduced by these extensions, this utility might incorrecly report that document
+ * Due to the intentional breakage introduced by these extensions, this utility might incorrectly report that document
  * is visible while it is not, but it will never report document as hidden while it is visible.
  *
  * This code exploits the fact that most such extensions block only a subset of Page Lifecycle API,
@@ -34,19 +34,19 @@ const listenerOptions: any = {
     passive: true,
 };
 
-function watchForDocumentVisibility() {
+function watchForDocumentVisibility(): void {
     document.addEventListener('visibilitychange', documentVisibilityListener!, listenerOptions);
     window.addEventListener('pageshow', documentVisibilityListener!, listenerOptions);
     window.addEventListener('focus', documentVisibilityListener!, listenerOptions);
 }
 
-function stopWatchingForDocumentVisibility() {
+function stopWatchingForDocumentVisibility(): void {
     document.removeEventListener('visibilitychange', documentVisibilityListener!, listenerOptions);
     window.removeEventListener('pageshow', documentVisibilityListener!, listenerOptions);
     window.removeEventListener('focus', documentVisibilityListener!, listenerOptions);
 }
 
-export function setDocumentVisibilityListener(callback: () => void) {
+export function setDocumentVisibilityListener(callback: () => void): void {
     const alreadyWatching = Boolean(documentVisibilityListener);
     documentVisibilityListener = () => {
         if (!document.hidden) {
@@ -60,11 +60,11 @@ export function setDocumentVisibilityListener(callback: () => void) {
     }
 }
 
-export function removeDocumentVisibilityListener() {
+export function removeDocumentVisibilityListener(): void {
     stopWatchingForDocumentVisibility();
     documentVisibilityListener = null;
 }
 
-export function documentIsVisible() {
+export function documentIsVisible(): boolean {
     return documentIsVisible_;
 }

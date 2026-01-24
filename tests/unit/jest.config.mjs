@@ -9,13 +9,17 @@ const config = {
     rootDir,
     testMatch: ['<rootDir>/tests/unit/**/*.tests.ts'],
     moduleFileExtensions: ['ts', 'tsx', 'js'],
+    moduleNameMapper: {
+        '@plus/(.*)': ['<rootDir>/src/stubs/$1'],
+    },
     transform: {'^.+\\.ts(x?)$': ['ts-jest', {tsconfig: '<rootDir>/tests/unit/tsconfig.json'}]},
     globals: {
-        __FIREFOX__: false,
+        __FIREFOX_MV2__: false,
         __CHROMIUM_MV2__: false,
         __CHROMIUM_MV3__: false,
         __THUNDERBIRD__: false,
         __DEBUG__: false,
+        __PLUS__: false,
         __TEST__: true,
     },
     setupFilesAfterEnv: ['jest-extended/all'],
