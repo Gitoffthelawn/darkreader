@@ -1,34 +1,42 @@
-import type {ParsedColorSchemeConfig} from './utils/colorscheme-parser';
 import type {FilterMode} from './generators/css-filter';
+import type {ThemeEngine} from './generators/theme-engines';
+import type {AutomationMode} from './utils/automation';
+import type {ParsedColorSchemeConfig} from './utils/colorscheme-parser';
+import type {DebugMessageTypeBGtoCS, DebugMessageTypeBGtoUI, DebugMessageTypeCStoBG, MessageTypeBGtoCS, MessageTypeBGtoUI, MessageTypeCStoBG, MessageTypeCStoUI, MessageTypeUItoBG, MessageTypeUItoCS} from './utils/message';
+
+export type ColorScheme = 'dark' | 'light';
 
 export interface ExtensionData {
     isEnabled: boolean;
     isReady: boolean;
+    isAllowedFileSchemeAccess: boolean;
     settings: UserSettings;
     news: News[];
     shortcuts: Shortcuts;
     colorScheme: ParsedColorSchemeConfig;
-    devtools: {
-        dynamicFixesText: string;
-        filterFixesText: string;
-        staticThemesText: string;
-        hasCustomDynamicFixes: boolean;
-        hasCustomFilterFixes: boolean;
-        hasCustomStaticFixes: boolean;
-    };
+    forcedScheme: 'dark' | 'light' | null;
+    activeTab: TabInfo;
+    uiHighlights: string[];
+}
+
+export interface DevToolsData {
+    dynamicFixesText: string;
+    filterFixesText: string;
+    staticThemesText: string;
 }
 
 export interface TabData {
-    type: string;
+    type: MessageTypeBGtoCS;
     data?: any;
 }
 
 export interface ExtensionActions {
     changeSettings(settings: Partial<UserSettings>): void;
-    setTheme(theme: Partial<FilterConfig>): void;
-    setShortcut(command: string, shortcut: string): void;
-    toggleURL(url: string): void;
+    setTheme(theme: Partial<Theme>): void;
+    setShortcut(command: string, shortcut: string): Promise<string | null>;
+    toggleActiveTab(): void;
     markNewsAsRead(ids: string[]): void;
+    markNewsAsDisplayed(ids: string[]): void;
     loadConfig(options: {local: boolean}): void;
     applyDevDynamicThemeFixes(text: string): Promise<void>;
     resetDevDynamicThemeFixes(): void;
@@ -36,12 +44,19 @@ export interface ExtensionActions {
     resetDevInversionFixes(): void;
     applyDevStaticThemes(text: string): Promise<void>;
     resetDevStaticThemes(): void;
+    startActivation(email: string, key: string): void;
+    resetActivation(): void;
+    hideHighlights(ids: string[]): void;
 }
 
 export interface ExtWrapper {
     data: ExtensionData;
     actions: ExtensionActions;
 }
+
+export type ViewProps = ExtWrapper & {
+    fonts?: string[];
+};
 
 export interface Theme {
     mode: FilterMode;
@@ -52,7 +67,7 @@ export interface Theme {
     useFont: boolean;
     fontFamily: string;
     textStroke: number;
-    engine: string;
+    engine: ThemeEngine;
     stylesheet: string;
     darkSchemeBackgroundColor: string;
     darkSchemeTextColor: string;
@@ -63,13 +78,13 @@ export interface Theme {
     styleSystemControls: boolean;
     lightColorScheme: string;
     darkColorScheme: string;
+    immediateModify: boolean;
 }
-
-export type FilterConfig = Theme;
 
 export interface CustomSiteConfig {
     url: string[];
-    theme: FilterConfig;
+    theme: Theme;
+    builtIn?: boolean;
 }
 
 export interface ThemePreset {
@@ -79,26 +94,34 @@ export interface ThemePreset {
     theme: Theme;
 }
 
+export interface Automation {
+    enabled: boolean;
+    mode: AutomationMode;
+    behavior: 'OnOff' | 'Scheme';
+}
+
 export interface UserSettings {
+    schemeVersion: number;
     enabled: boolean;
     fetchNews: boolean;
-    theme: FilterConfig;
+    theme: Theme;
     presets: ThemePreset[];
     customThemes: CustomSiteConfig[];
-    siteList: string[];
-    siteListEnabled: string[];
-    applyToListedOnly: boolean;
+    enabledByDefault: boolean;
+    enabledFor: string[];
+    disabledFor: string[];
     changeBrowserTheme: boolean;
     syncSettings: boolean;
     syncSitesFixes: boolean;
-    automation: '' | 'time' | 'system' | 'location';
-    automationBehaviour: 'OnOff' | 'Scheme';
+    automation: Automation;
     time: TimeSettings;
     location: LocationSettings;
     previewNewDesign: boolean;
+    previewNewestDesign: boolean;
     enableForPDF: boolean;
     enableForProtectedPages: boolean;
     enableContextMenus: boolean;
+    detectDarkTheme: boolean;
 }
 
 export interface TimeSettings {
@@ -107,22 +130,66 @@ export interface TimeSettings {
 }
 
 export interface LocationSettings {
-    latitude: number;
-    longitude: number;
+    latitude: number | null;
+    longitude: number | null;
 }
 
 export interface TabInfo {
     url: string;
+    id: number | null;
+    documentId: string | null;
     isProtected: boolean;
-    isInjected: boolean;
+    isInjected: boolean | null;
     isInDarkList: boolean;
+    isDarkThemeDetected: boolean | null;
 }
 
-export interface Message {
-    type: string;
+export interface MessageCStoBG {
+    id?: string;
+    scriptId?: string;
+    type: MessageTypeCStoBG;
     data?: any;
-    id?: number;
+}
+
+export interface MessageUItoCS {
+    type: MessageTypeUItoCS;
+}
+
+export interface MessageCStoUI {
+    type: MessageTypeCStoUI;
+    data: any;
+}
+
+export interface MessageBGtoCS {
+    id?: string;
+    scriptId?: string;
+    type: MessageTypeBGtoCS;
+    data?: any;
     error?: any;
+}
+
+export interface MessageUItoBG {
+    type: MessageTypeUItoBG;
+    data?: any;
+    error?: any;
+}
+
+export interface MessageBGtoUI {
+    type: MessageTypeBGtoUI;
+    data?: any;
+}
+
+export interface DebugMessageBGtoCS {
+    type: DebugMessageTypeBGtoCS;
+}
+
+export interface DebugMessageBGtoUI {
+    type: DebugMessageTypeBGtoUI;
+}
+
+export interface DebugMessageCStoBG {
+    type: DebugMessageTypeCStoBG;
+    data?: any;
 }
 
 export interface Shortcuts {
@@ -136,6 +203,7 @@ export interface DynamicThemeFix {
     ignoreInlineStyle: string[];
     ignoreImageAnalysis: string[];
     disableStyleSheetsProxy: boolean;
+    disableCustomElementRegistryProxy: boolean;
 }
 
 export interface InversionFix {
@@ -144,6 +212,15 @@ export interface InversionFix {
     noinvert: string[];
     removebg: string[];
     css: string;
+}
+
+export interface DetectorHint {
+    url: string[];
+    target: string;
+    match: string[];
+    noDarkTheme: boolean;
+    systemTheme: boolean;
+    iframe: boolean;
 }
 
 export interface StaticTheme {
@@ -181,6 +258,11 @@ export interface News {
     date: string;
     url: string;
     headline: string;
-    important: boolean;
     read?: boolean;
+    displayed?: boolean;
+    badge?: string;
+    icon?: string;
 }
+
+// These values need to match those in Manifest
+export type Command = 'toggle' | 'addSite' | 'switchEngine';

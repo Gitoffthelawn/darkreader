@@ -1,8 +1,8 @@
-import {MessageType} from '../utils/message';
-import {isFirefox} from '../utils/platform';
-import type {Message} from '../definitions';
+import {isMobile} from '../utils/platform';
 
-export function classes(...args: Array<string | {[cls: string]: boolean}>) {
+declare const __CHROMIUM_MV3__: boolean;
+
+export function classes(...args: Array<string | {[cls: string]: boolean}>): string {
     const classes: string[] = [];
     args.filter((c) => Boolean(c)).forEach((c) => {
         if (typeof c === 'string') {
@@ -14,11 +14,11 @@ export function classes(...args: Array<string | {[cls: string]: boolean}>) {
     return classes.join(' ');
 }
 
-export function compose<T extends Malevic.Component>(type: T, ...wrappers: Array<(t: T) => T>) {
+export function compose<T extends Malevic.Component>(type: T, ...wrappers: Array<(t: T) => T>): T {
     return wrappers.reduce((t, w) => w(t), type);
 }
 
-export function openFile(options: {extensions: string[]}, callback: (content: string) => void) {
+export function openFile(options: {extensions: string[]}, callback: (content: string) => void): void {
     const input = document.createElement('input');
     input.type = 'file';
     input.style.display = 'none';
@@ -28,8 +28,8 @@ export function openFile(options: {extensions: string[]}, callback: (content: st
     const reader = new FileReader();
     reader.onloadend = () => callback(reader.result as string);
     input.onchange = () => {
-        if (input.files[0]) {
-            reader.readAsText(input.files[0]);
+        if (input.files![0]) {
+            reader.readAsText(input.files![0]);
             document.body.removeChild(input);
         }
     };
@@ -37,21 +37,17 @@ export function openFile(options: {extensions: string[]}, callback: (content: st
     input.click();
 }
 
-export function saveFile(name: string, content: string) {
-    if (isFirefox) {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([content]));
-        a.download = name;
-        a.click();
-    } else {
-        chrome.runtime.sendMessage<Message>({type: MessageType.UI_SAVE_FILE, data: {name, content}});
-    }
+export function saveFile(name: string, content: string): void {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content]));
+    a.download = name;
+    a.click();
 }
 
 type AnyVoidFunction = (...args: any[]) => void;
 
 export function throttle<F extends AnyVoidFunction>(callback: F): F {
-    let frameId: number = null;
+    let frameId: number | null = null;
     return ((...args: any[]) => {
         if (!frameId) {
             callback(...args);
@@ -71,12 +67,12 @@ type StartSwipeHandler = SwipeEventHandler<{move: SwipeEventHandler; up: SwipeEv
 function onSwipeStart(
     startEventObj: MouseEvent | TouchEvent,
     startHandler: StartSwipeHandler,
-) {
+): void {
     const isTouchEvent =
         typeof TouchEvent !== 'undefined' &&
         startEventObj instanceof TouchEvent;
     const touchId = isTouchEvent
-        ? (startEventObj as TouchEvent).changedTouches[0].identifier
+        ? (startEventObj).changedTouches[0].identifier
         : null;
     const pointerMoveEvent = isTouchEvent ? 'touchmove' : 'mousemove';
     const pointerUpEvent = isTouchEvent ? 'touchend' : 'mouseup';
@@ -98,7 +94,7 @@ function onSwipeStart(
     function getTouch(e: TouchEvent) {
         return Array.from(e.changedTouches).find(
             ({identifier: id}) => id === touchId,
-        );
+        )!;
     }
 
     const onPointerMove = throttle((e) => {
@@ -121,11 +117,11 @@ function onSwipeStart(
     window.addEventListener(pointerUpEvent, onPointerUp, {passive: true});
 }
 
-export function createSwipeHandler(startHandler: StartSwipeHandler) {
+export function createSwipeHandler(startHandler: StartSwipeHandler): (e: MouseEvent | TouchEvent) => void {
     return (e: MouseEvent | TouchEvent) => onSwipeStart(e, startHandler);
 }
 
-export async function getFontList() {
+export async function getFontList(): Promise<string[]> {
     return new Promise<string[]>((resolve) => {
         if (!chrome.fontSettings) {
             // Todo: Remove it as soon as Firefox and Edge get support.
@@ -135,7 +131,7 @@ export async function getFontList() {
                 'monospace',
                 'cursive',
                 'fantasy',
-                'system-ui'
+                'system-ui',
             ]);
             return;
         }
@@ -144,4 +140,72 @@ export async function getFontList() {
             resolve(fonts);
         });
     });
+}
+
+type ExtensionPage = 'devtools' | 'options' | 'stylesheet-editor';
+
+// TODO(Anton): There must be a better way to do this
+// This function ping-pongs a message to possible DevTools popups.
+// This function should have reasonable performance since it sends
+// messages only to popups and not regular windows.
+async function getExtensionPageTabMV3(): Promise<chrome.tabs.Tab | null> {
+    return new Promise((resolve) => {
+        chrome.windows.getAll({
+            populate: true,
+            windowTypes: ['popup'],
+        }, (w) => {
+            const responses: Array<Promise<string>> = [];
+            let found = false;
+            for (const window of w) {
+                const response = chrome.tabs.sendMessage<string, 'getExtensionPageTabMV3_pong'>(window.tabs![0]!.id!, 'getExtensionPageTabMV3_ping', {frameId: 0});
+                response.then((response) => {
+                    if (response === 'getExtensionPageTabMV3_pong') {
+                        found = true;
+                        resolve(window.tabs![0]);
+                    }
+                });
+                responses.push(response);
+            }
+            Promise.all(responses).then(() => !found && resolve(null));
+        });
+    });
+}
+
+async function getExtensionPageTab(url: string): Promise<chrome.tabs.Tab | null> {
+    if (__CHROMIUM_MV3__) {
+        return getExtensionPageTabMV3();
+    }
+    return new Promise<chrome.tabs.Tab>((resolve) => {
+        chrome.tabs.query({
+            url,
+        }, ([tab]) => resolve(tab || null));
+    });
+}
+
+export async function openExtensionPage(page: ExtensionPage): Promise<void> {
+    const url = chrome.runtime.getURL(`/ui/${page}/index.html`);
+    if (isMobile || page === 'options') {
+        const extensionPageTab = await getExtensionPageTab(url);
+        if (extensionPageTab !== null) {
+            chrome.tabs.update(extensionPageTab.id!, {active: true});
+            window.close();
+        } else {
+            chrome.tabs.create({url});
+            window.close();
+        }
+    } else {
+        const extensionPageTab = await getExtensionPageTab(url);
+        if (extensionPageTab !== null) {
+            chrome.windows.update(extensionPageTab.windowId, {focused: true});
+            window.close();
+        } else {
+            chrome.windows.create({
+                type: 'popup',
+                url,
+                width: 800,
+                height: 600,
+            });
+            window.close();
+        }
+    }
 }

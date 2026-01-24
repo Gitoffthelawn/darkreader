@@ -1,11 +1,7 @@
-const {log} = require('./utils');
-const watch = require('./watch');
+import {log} from './utils.js';
+import watch from './watch.js';
 
-/**
- * @typedef TaskOptions
- * @property {boolean} debug
- * @property {boolean} watch
- */
+/** @typedef {import('./types').TaskOptions} TaskOptions */
 
 class Task {
     /**
@@ -19,7 +15,7 @@ class Task {
 
     /**
      * @param {string[] | (() => string[])} files
-     * @param {(changedFiles: string[], watcher: import('chokidar').FSWatcher) => void | Promise<void>} onChange
+     * @param {(changedFiles: string[], watcher: import('chokidar').FSWatcher, platforms: object) => void | Promise<void>} onChange
      */
     addWatcher(files, onChange) {
         this._watchFiles = files;
@@ -28,11 +24,11 @@ class Task {
     }
 
     /**
-     * @param {Promise<void>} promise
+     * @param {() => void | Promise<void>} fn
      */
-    async _measureTime(promise) {
+    async _measureTime(fn) {
         const start = Date.now();
-        await promise;
+        await fn();
         const end = Date.now();
         log(`${this.name} (${(end - start).toFixed(0)}ms)`);
     }
@@ -42,11 +38,11 @@ class Task {
      */
     async run(options) {
         await this._measureTime(
-            this._run(options)
+            () => this._run(options)
         );
     }
 
-    watch() {
+    watch(platforms) {
         if (!this._watchFiles || !this._onChange) {
             return;
         }
@@ -57,7 +53,7 @@ class Task {
                 this._watchFiles,
             onChange: async (files) => {
                 await this._measureTime(
-                    this._onChange(files, watcher)
+                    () => this._onChange(files, watcher, platforms)
                 );
             },
         });
@@ -68,7 +64,7 @@ class Task {
  * @param {string} name
  * @param {(options: TaskOptions) => void | Promise<any>} run
  */
-function createTask(name, run) {
+export function createTask(name, run) {
     return new Task(name, run);
 }
 
@@ -76,7 +72,7 @@ function createTask(name, run) {
  * @param {Task[]} tasks
  * @param {TaskOptions} options
  */
-async function runTasks(tasks, options) {
+export async function runTasks(tasks, options) {
     for (const task of tasks) {
         try {
             await task.run(options);
@@ -86,8 +82,3 @@ async function runTasks(tasks, options) {
         }
     }
 }
-
-module.exports = {
-    createTask,
-    runTasks,
-};

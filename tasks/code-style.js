@@ -1,9 +1,10 @@
 // @ts-check
-const globby = require('globby');
-const prettier = require('prettier');
-const {getDestDir, PLATFORM} = require('./paths');
-const {createTask} = require('./task');
-const {log, readFile, writeFile} = require('./utils');
+import {format} from 'prettier';
+
+import {getDestDir} from './paths.js';
+import {PLATFORM} from './platform.js';
+import {createTask} from './task.js';
+import {readFile, writeFile, getPaths} from './utils.js';
 
 /** @type {import('prettier').Options} */
 const options = {
@@ -19,23 +20,54 @@ const options = {
 
 const extensions = ['html', 'css', 'js'];
 
-async function codeStyle({debug}) {
-    const dir = getDestDir({debug, platform: PLATFORM.CHROME});
-    const files = await globby(extensions.map((ext) => `${dir}/**/*.${ext}`));
+async function processAPIBuildModule(filepath) {
+    const code = await readFile(filepath);
+    const formatted = await format(code, {
+        ...options,
+        filepath,
+    });
+    if (code !== formatted) {
+        await writeFile(filepath, formatted);
+    }
+}
+
+async function processAPIBuild() {
+    await processAPIBuildModule('darkreader.js');
+    await processAPIBuildModule('darkreader.mjs');
+}
+
+async function processExtensionPlatform(platform) {
+    const dir = getDestDir({debug: false, platform});
+    const files = await getPaths(extensions.map((ext) => `${dir}/**/*.${ext}`));
     for (const file of files) {
         const code = await readFile(file);
-        const formatted = prettier.format(code, {
+        const formatted = await format(code, {
             ...options,
             filepath: file,
         });
         if (code !== formatted) {
             await writeFile(file, formatted);
-            debug && log.ok(file);
         }
     }
 }
 
-module.exports = createTask(
+async function codeStyle({platforms, debug}) {
+    if (debug) {
+        throw new Error('code-style task does not support debug builds');
+    }
+    const promisses = [];
+    if (platforms[PLATFORM.API]) {
+        promisses.push(processAPIBuild());
+    }
+    Object.values(PLATFORM)
+        .filter((platform) => platform !== PLATFORM.API && platforms[platform])
+        .forEach((platform) => promisses.push(processExtensionPlatform(platform)));
+    await Promise.all(promisses);
+}
+
+const codeStyleTask = createTask(
     'code-style',
     codeStyle,
 );
+
+export default codeStyleTask;

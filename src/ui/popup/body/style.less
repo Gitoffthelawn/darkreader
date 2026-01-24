@@ -111,6 +111,7 @@
         }
 
         &__icon {
+            display: none;
             isolation: isolate;
 
             &::before,
@@ -134,6 +135,10 @@
                 background-color: @color-fore;
                 left: 1rem;
             }
+        }
+
+        &:hover {
+            box-shadow: inset 0 0 0 1px #ffffff88;
         }
     }
 
@@ -166,35 +171,13 @@
     overflow: visible;
     position: relative;
     width: calc(100% - 2 * 0.125rem);
-
-    &--has-custom-fixes {
-        &::after {
-            background-color: @color-heading;
-            border-radius: @size-text-small-height / 2;
-            color: @color-control-fore;
-            content: "!";
-            font-size: @size-text-small;
-            line-height: @size-text-small-height;
-            min-width: @size-text-small-height;
-            position: absolute;
-            right: -@size-text-small-height / 3;
-            top: -@size-text-small-height / 3;
-            z-index: 3;
-        }
-    }
 }
 
 .mobile,
 .preview {
-    @import "../control-group/style.less";
-    @import "../check-button/style.less";
     @import "../main-page/style.less";
     @import "../news-section/style.less";
     @import "../page-viewer/style.less";
-    @import "../settings-page/style.less";
-    @import "../automation-page/style.less";
-    @import "../manage-settings-page/style.less";
-    @import "../site-list-page/style.less";
     @import "../theme/controls/theme-control.less";
     @import "../theme/controls/mode.less";
     @import "../theme/page/style.less";
@@ -236,4 +219,20 @@
     .mobile {
         font-size: 32px;
     }
+}
+
+.firefox {
+    .darkreader-version {
+        display: none;
+    }
+}
+
+.preview:not(.mobile) {
+    body {
+        border-color: mix(@color-back, @color-control-fore);
+    }
+}
+
+html:not(.mobile) {
+    width: calc(@popup-content-width + 2 * @popup-content-padding + 4px);
 }

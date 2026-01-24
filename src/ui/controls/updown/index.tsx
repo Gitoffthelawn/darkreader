@@ -1,7 +1,9 @@
 import {m} from 'malevic';
-import Button from '../button';
-import Track from './track';
+
 import {getLocalMessage} from '../../../utils/locales';
+import Button from '../button';
+
+import Track from './track';
 
 interface UpDownProps {
     value: number;
@@ -16,12 +18,12 @@ interface UpDownProps {
 export default function UpDown(props: UpDownProps) {
     const buttonDownCls = {
         'updown__button': true,
-        'updown__button--disabled': props.value === props.min
+        'updown__button--disabled': props.value === props.min,
     };
 
     const buttonUpCls = {
         'updown__button': true,
-        'updown__button--disabled': props.value === props.max
+        'updown__button--disabled': props.value === props.max,
     };
 
     function normalize(x: number) {

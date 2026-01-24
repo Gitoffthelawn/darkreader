@@ -1,9 +1,9 @@
-import '../polyfills';
+import '../support/polyfills';
 import {DEFAULT_THEME} from '../../../src/defaults';
+import type {DynamicThemeFix} from '../../../src/definitions';
 import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../../../src/inject/dynamic-theme';
 import {getImageDetails} from '../../../src/inject/dynamic-theme/image';
-import {multiline, timeout} from '../../test-utils';
-import type {DynamicThemeFix} from '../../../src/definitions';
+import {multiline, timeout, waitForEvent} from '../support/test-utils';
 
 const theme = {
     ...DEFAULT_THEME,
@@ -153,13 +153,10 @@ describe('IMAGE ANALYSIS', () => {
         expect(details.isLarge).toBe(false);
     });
 
-    it('should analyze large image', async () => {
+    it('should not analyze large image', async () => {
         const details = await getImageDetails(svgToDataURL(images.largeDarkImage));
         expect(details.width).toBe(1024);
         expect(details.height).toBe(1024);
-        expect(details.isDark).toBe(true);
-        expect(details.isLight).toBe(false);
-        expect(details.isTransparent).toBe(false);
         expect(details.isLarge).toBe(true);
     });
 
@@ -171,7 +168,8 @@ describe('IMAGE ANALYSIS', () => {
             '<h1>Dark icon <i></i></h1>',
         );
         createOrUpdateDynamicTheme(theme, null, false);
-        await timeout(50);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
+        await timeout(500);
         const bgImageValue = getComputedStyle(container.querySelector('i')).backgroundImage;
         const info = await getBgImageInfo(bgImageValue);
         expect(info.darkness).toBe(0);
@@ -214,7 +212,7 @@ describe('IMAGE ANALYSIS', () => {
             '<h1>Light background</h1>',
         );
         createOrUpdateDynamicTheme(theme, null, false);
-        await timeout(75);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
         const bgImageValue = getComputedStyle(container.querySelector('h1')).backgroundImage;
         expect(bgImageValue).toBe('none');
     });
@@ -226,16 +224,66 @@ describe('IMAGE ANALYSIS', () => {
             '</style>',
             '<h1>Dark icon <i></i></h1>',
         );
-        const fixes: DynamicThemeFix = {
+        const fixes: DynamicThemeFix[] = [{
             url: ['*'],
             invert: [''],
             css: '',
             ignoreInlineStyle: ['.'],
             ignoreImageAnalysis: ['*'],
             disableStyleSheetsProxy: false,
-        };
+            disableCustomElementRegistryProxy: false,
+        }];
         createOrUpdateDynamicTheme(theme, fixes, false);
         const backgroundImage = getComputedStyle(container.querySelector('i')).backgroundImage;
         expect(backgroundImage).toContain('data:');
+    });
+
+    it('should handle background-image with URL and gradient', async () => {
+        container.innerHTML = multiline(
+            '<style>',
+            `    h1 { background-image: url("${svgToDataURL(images.lightIcon)}"), linear-gradient(red, white);`,
+            '</style>',
+            '<h1>Weird color <strong>Power</strong>!</h1>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
+        expect(getComputedStyle(container.querySelector('h1')).backgroundImage).toMatch(/^url\("blob:.*"\), linear-gradient\(rgb\(204, 0, 0\), rgb\(0, 0, 0\)\)$/);
+    });
+
+    it('should handle background-image with non-base64 data URL', async () => {
+        container.innerHTML = multiline(
+            '<style>',
+            `    h1 { background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="6" height="3">%3Cpath%20d%3D%22m0%202.5%20l2%20-1.5%20l1%200%20l2%201.5%20l1%200%22%20stroke%3D%22%23d11%22%20fill%3D%22none%22%20stroke-width%3D%22.7%22%2F%3E</svg>');`,
+            '</style>',
+            '<h1>Weird color <strong>Power</strong>!</h1>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
+        expect(getComputedStyle(container.querySelector('h1')).backgroundImage).toMatch(/^url\("blob:.*"\)$/);
+    });
+
+    it('should handle background-image with URL and gradient (revered)', async () => {
+        container.innerHTML = multiline(
+            '<style>',
+            `    h1 { background-image: linear-gradient(red, white), url("${svgToDataURL(images.lightIcon)}");`,
+            '</style>',
+            '<h1>Weird color <strong>Power</strong>!</h1>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
+        await timeout(500);
+        expect(getComputedStyle(container.querySelector('h1')).backgroundImage).toMatch(/^linear-gradient\(rgb\(204, 0, 0\), rgb\(0, 0, 0\)\), url\("blob:.*"\)$/);
+    });
+
+    it('should handle background-image with empty URLs', async () => {
+        container.innerHTML = multiline(
+            '<style>',
+            `    h1 { background-image: url(''), url(''), url("${svgToDataURL(images.lightIcon)}");`,
+            '</style>',
+            '<h1>Weird color <strong>Power</strong>!</h1>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+        await waitForEvent('__darkreader__test__asyncQueueComplete');
+        expect(getComputedStyle(container.querySelector('h1')).backgroundImage).toMatch(/^url\(""\), url\(""\), url\("blob:.*"\)$/);
     });
 });

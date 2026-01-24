@@ -1,7 +1,7 @@
-import {logWarn} from '../../utils/log';
-import {throttle} from '../../utils/throttle';
 import {forEach} from '../../utils/array';
+import {throttle} from '../../utils/throttle';
 import {getDuration} from '../../utils/time';
+import {logWarn} from '../utils/log';
 
 interface CreateNodeAsapParams {
     selectNode: () => HTMLElement;
@@ -12,6 +12,12 @@ interface CreateNodeAsapParams {
     isTargetMutation: (mutation: MutationRecord) => boolean;
 }
 
+interface NodePosetionWatcher {
+    run: () => void;
+    stop: () => void;
+    skip: () => void;
+}
+
 export function createNodeAsap({
     selectNode,
     createNode,
@@ -19,7 +25,7 @@ export function createNodeAsap({
     selectTarget,
     createTarget,
     isTargetMutation,
-}: CreateNodeAsapParams) {
+}: CreateNodeAsapParams): void {
     const target = selectTarget();
     if (target) {
         const prev = selectNode();
@@ -56,25 +62,26 @@ export function createNodeAsap({
         if (document.readyState === 'complete') {
             ready();
         } else {
+            // readystatechange event is not cancellable and does not bubble
             document.addEventListener('readystatechange', ready);
             observer.observe(document, {childList: true, subtree: true});
         }
     }
 }
 
-export function removeNode(node: Node) {
+export function removeNode(node: Node | null): void {
     node && node.parentNode && node.parentNode.removeChild(node);
 }
 
 export function watchForNodePosition<T extends Node>(
     node: T,
-    mode: 'parent' | 'prev-sibling',
+    mode: 'head' | 'prev-sibling',
     onRestore = Function.prototype,
-) {
+): NodePosetionWatcher {
     const MAX_ATTEMPTS_COUNT = 10;
     const RETRY_TIMEOUT = getDuration({seconds: 2});
     const ATTEMPTS_INTERVAL = getDuration({seconds: 10});
-    const prevSibling = node.previousSibling;
+    let prevSibling = node.previousSibling;
     let parent = node.parentNode;
     if (!parent) {
         throw new Error('Unable to watch for node position: parent element not found');
@@ -83,8 +90,8 @@ export function watchForNodePosition<T extends Node>(
         throw new Error('Unable to watch for node position: there is no previous sibling');
     }
     let attempts = 0;
-    let start: number = null;
-    let timeoutId: number = null;
+    let start: number | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const restore = throttle(() => {
         if (timeoutId) {
             return;
@@ -108,45 +115,54 @@ export function watchForNodePosition<T extends Node>(
             attempts = 1;
         }
 
-        if (mode === 'parent') {
+        if (mode === 'head') {
             if (prevSibling && prevSibling.parentNode !== parent) {
-                logWarn('Unable to restore node position: sibling parent changed', node, prevSibling, parent);
-                stop();
-                return;
+                logWarn('Sibling moved, moving node to the head end', node, prevSibling, parent);
+                prevSibling = document.head.lastChild;
             }
         }
 
         if (mode === 'prev-sibling') {
-            if (prevSibling.parentNode == null) {
+            if (prevSibling!.parentNode == null) {
                 logWarn('Unable to restore node position: sibling was removed', node, prevSibling, parent);
                 stop();
                 return;
             }
-            if (prevSibling.parentNode !== parent) {
+            if (prevSibling!.parentNode !== parent) {
                 logWarn('Style was moved to another parent', node, prevSibling, parent);
-                updateParent(prevSibling.parentNode);
+                updateParent(prevSibling!.parentNode);
             }
         }
 
+        // If parent becomes disconnected from the DOM, fetches the new head and
+        // save that as parent. Do this only for the head mode, as those are
+        // important nodes to keep.
+        if (mode === 'head' && !parent!.isConnected) {
+            parent = document.head;
+            // TODO: Set correct prevSibling, which needs to be the last `.darkreader` in <head> that isn't .darkeader--sync or .darkreader--cors.
+        }
+
         logWarn('Restoring node position', node, prevSibling, parent);
-        parent.insertBefore(node, prevSibling ? prevSibling.nextSibling : parent.firstChild);
+        parent!.insertBefore(node, prevSibling && prevSibling.isConnected ? prevSibling.nextSibling : parent!.firstChild);
         observer.takeRecords();
         onRestore && onRestore();
     });
     const observer = new MutationObserver(() => {
         if (
-            (mode === 'parent' && node.parentNode !== parent) ||
+            (mode === 'head' && (node.parentNode !== parent || !node.parentNode!.isConnected)) ||
             (mode === 'prev-sibling' && node.previousSibling !== prevSibling)
         ) {
             restore();
         }
     });
     const run = () => {
-        observer.observe(parent, {childList: true});
+        // TODO: remove type cast after dependency update
+        observer.observe(parent!, {childList: true});
     };
 
     const stop = () => {
-        clearTimeout(timeoutId);
+        // TODO: remove type cast after dependency update
+        clearTimeout(timeoutId!);
         observer.disconnect();
         restore.cancel();
     };
@@ -155,7 +171,7 @@ export function watchForNodePosition<T extends Node>(
         observer.takeRecords();
     };
 
-    const updateParent = (parentNode: Node & ParentNode) => {
+    const updateParent = (parentNode: Node & ParentNode | null) => {
         parent = parentNode;
         stop();
         run();
@@ -165,7 +181,7 @@ export function watchForNodePosition<T extends Node>(
     return {run, stop, skip};
 }
 
-export function iterateShadowHosts(root: Node, iterator: (host: Element) => void) {
+export function iterateShadowHosts(root: Node | null, iterator: (host: Element) => void): void {
     if (root == null) {
         return;
     }
@@ -175,7 +191,7 @@ export function iterateShadowHosts(root: Node, iterator: (host: Element) => void
         {
             acceptNode(node) {
                 return (node as Element).shadowRoot == null ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT;
-            }
+            },
         },
     );
     for (
@@ -183,38 +199,46 @@ export function iterateShadowHosts(root: Node, iterator: (host: Element) => void
         node != null;
         node = walker.nextNode() as Element
     ) {
+        if (node.classList.contains('surfingkeys_hints_host')) {
+            continue;
+        }
+
         iterator(node);
         iterateShadowHosts(node.shadowRoot, iterator);
     }
 }
 
-export function isDOMReady() {
+export let isDOMReady: () => boolean = () => {
     return document.readyState === 'complete' || document.readyState === 'interactive';
+};
+
+export function setIsDOMReady(newFunc: () => boolean): void {
+    isDOMReady = newFunc;
 }
 
 const readyStateListeners = new Set<() => void>();
 
-export function addDOMReadyListener(listener: () => void) {
-    readyStateListeners.add(listener);
+export function addDOMReadyListener(listener: () => void): void {
+    isDOMReady() ? listener() : readyStateListeners.add(listener);
 }
 
-export function removeDOMReadyListener(listener: () => void) {
+export function removeDOMReadyListener(listener: () => void): void {
     readyStateListeners.delete(listener);
 }
 
 // `interactive` can and will be fired when their are still stylesheets loading.
 // We use certain actions that can cause a forced layout change, which is bad.
-export function isReadyStateComplete() {
+export function isReadyStateComplete(): boolean {
     return document.readyState === 'complete';
 }
 
 const readyStateCompleteListeners = new Set<() => void>();
 
-export function addReadyStateCompleteListener(listener: () => void) {
-    readyStateCompleteListeners.add(listener);
+export function addReadyStateCompleteListener(listener: () => void): void {
+    isReadyStateComplete() ? listener() : readyStateCompleteListeners.add(listener);
 }
 
-export function cleanReadyStateCompleteListeners() {
+export function cleanReadyStateCompleteListeners(): void {
     readyStateCompleteListeners.clear();
 }
 
@@ -231,6 +255,7 @@ if (!isDOMReady()) {
         }
     };
 
+    // readystatechange event is not cancellable and does not bubble
     document.addEventListener('readystatechange', onReadyStateChange);
 }
 
@@ -280,15 +305,15 @@ function getElementsTreeOperations(mutations: MutationRecord[]): ElementsTreeOpe
         });
     });
 
-    const duplicateAdditions = [] as Element[];
-    const duplicateDeletions = [] as Element[];
+    const duplicateAdditions: Element[] = [];
+    const duplicateDeletions: Element[] = [];
     additions.forEach((node) => {
-        if (additions.has(node.parentElement)) {
+        if (additions.has(node.parentElement as HTMLElement)) {
             duplicateAdditions.push(node);
         }
     });
     deletions.forEach((node) => {
-        if (deletions.has(node.parentElement)) {
+        if (deletions.has(node.parentElement as HTMLElement)) {
             duplicateDeletions.push(node);
         }
     });
@@ -299,7 +324,7 @@ function getElementsTreeOperations(mutations: MutationRecord[]): ElementsTreeOpe
 }
 
 interface OptimizedTreeObserverCallbacks {
-    onMinorMutations: (operations: ElementsTreeOperations) => void;
+    onMinorMutations: (root: Document | ShadowRoot, operations: ElementsTreeOperations) => void;
     onHugeMutations: (root: Document | ShadowRoot) => void;
 }
 
@@ -307,14 +332,14 @@ const optimizedTreeObservers = new Map<Node, MutationObserver>();
 const optimizedTreeCallbacks = new WeakMap<MutationObserver, Set<OptimizedTreeObserverCallbacks>>();
 
 // TODO: Use a single function to observe all shadow roots.
-export function createOptimizedTreeObserver(root: Document | ShadowRoot, callbacks: OptimizedTreeObserverCallbacks) {
+export function createOptimizedTreeObserver(root: Document | ShadowRoot, callbacks: OptimizedTreeObserverCallbacks): {disconnect: () => void} {
     let observer: MutationObserver;
     let observerCallbacks: Set<OptimizedTreeObserverCallbacks>;
     let domReadyListener: () => void;
 
     if (optimizedTreeObservers.has(root)) {
-        observer = optimizedTreeObservers.get(root);
-        observerCallbacks = optimizedTreeCallbacks.get(observer);
+        observer = optimizedTreeObservers.get(root)!;
+        observerCallbacks = optimizedTreeCallbacks.get(observer)!;
     } else {
         let hadHugeMutationsBefore = false;
         let subscribedForReadyState = false;
@@ -331,7 +356,7 @@ export function createOptimizedTreeObserver(root: Document | ShadowRoot, callbac
                 hadHugeMutationsBefore = true;
             } else {
                 const elementsOperations = getElementsTreeOperations(mutations);
-                observerCallbacks.forEach(({onMinorMutations}) => onMinorMutations(elementsOperations));
+                observerCallbacks.forEach(({onMinorMutations}) => onMinorMutations(root, elementsOperations));
             }
         });
         observer.observe(root, {childList: true, subtree: true});

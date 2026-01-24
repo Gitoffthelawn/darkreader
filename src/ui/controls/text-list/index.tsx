@@ -1,5 +1,6 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
+
 import TextBox from '../textbox';
 import VirtualScroll from '../virtual-scroll';
 
@@ -49,7 +50,7 @@ export default function TextList(props: TextListProps) {
     let shouldFocus = false;
 
     const node = context.node;
-    const prevProps = context.prev ? context.prev.props as TextListProps : null;
+    const prevProps: TextListProps | null = context.prev ? context.prev.props : null;
     if (node && props.isFocused && (
         !prevProps ||
         !prevProps.isFocused ||

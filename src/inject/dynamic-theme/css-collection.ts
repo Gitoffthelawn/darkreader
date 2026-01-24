@@ -1,6 +1,7 @@
 import {forEach} from '../../utils/array';
+import {formatCSS} from '../../utils/css-text/format-css';
 import {loadAsDataURL} from '../../utils/network';
-import {getMatches, formatCSS} from '../../utils/text';
+import {getMatches} from '../../utils/text';
 
 const blobRegex = /url\(\"(blob\:.*?)\"\)/g;
 
@@ -35,10 +36,10 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
                 https://darkreader.org
 */
 
-/*! Dark reader generated CSS | Licensed under MIT https://github.com/darkreader/darkreader/blob/master/LICENSE */
+/*! Dark reader generated CSS | Licensed under MIT https://github.com/darkreader/darkreader/blob/main/LICENSE */
 `;
 
-export async function collectCSS() {
+export async function collectCSS(): Promise<string> {
     const css = [banner];
 
     function addStaticCSS(selector: string, comment: string) {
@@ -58,7 +59,7 @@ export async function collectCSS() {
 
     const modifiedCSS: string[] = [];
     document.querySelectorAll('.darkreader--sync').forEach((element: HTMLStyleElement) => {
-        forEach(element.sheet.cssRules, (rule) => {
+        forEach(element.sheet!.cssRules, (rule) => {
             rule && rule.cssText && modifiedCSS.push(rule.cssText);
         });
     });

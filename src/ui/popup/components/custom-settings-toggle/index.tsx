@@ -1,18 +1,21 @@
 import {m} from 'malevic';
-import {Button} from '../../../controls';
-import {getURLHostOrProtocol, isURLInList} from '../../../../utils/url';
-import {getLocalMessage} from '../../../../utils/locales';
-import type {ExtWrapper, TabInfo} from '../../../../definitions';
-import {isThunderbird} from '../../../../utils/platform';
 
-export default function CustomSettingsToggle({data, tab, actions}: ExtWrapper & {tab: TabInfo}) {
+import type {ExtWrapper} from '../../../../definitions';
+import {getLocalMessage} from '../../../../utils/locales';
+import {getURLHostOrProtocol, isURLInList} from '../../../../utils/url';
+import {Button} from '../../../controls';
+
+declare const __THUNDERBIRD__: boolean;
+
+export default function CustomSettingsToggle({data, actions}: ExtWrapper) {
+    const tab = data.activeTab;
     const host = getURLHostOrProtocol(tab.url);
 
     const isCustom = data.settings.customThemes.some(({url}) => isURLInList(tab.url, url));
 
     const urlText = host
         .split('.')
-        .reduce((elements, part, i) => elements.concat(
+        .reduce<string[]>((elements, part, i) => elements.concat(
             <wbr />,
             `${i > 0 ? '.' : ''}${part}`
         ), []);
@@ -22,7 +25,7 @@ export default function CustomSettingsToggle({data, tab, actions}: ExtWrapper & 
             class={{
                 'custom-settings-toggle': true,
                 'custom-settings-toggle--checked': isCustom,
-                'custom-settings-toggle--disabled': tab.isProtected || isThunderbird,
+                'custom-settings-toggle--disabled': __THUNDERBIRD__ || tab.isProtected,
             }}
             onclick={(e) => {
                 if (isCustom) {
