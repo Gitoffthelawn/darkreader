@@ -8,6 +8,7 @@
             "Dom"
         ],
         "types": [
+            "chrome",
             "node",
             "jest",
             "jest-extended"
@@ -16,6 +17,10 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "noImplicitAny": true,
-        "inlineSourceMap": true
+        "strictNullChecks": true,
+        "inlineSourceMap": true,
+        "paths": {
+            "@plus/*": ["../../src/stubs/*"]
+        }
     }
 }

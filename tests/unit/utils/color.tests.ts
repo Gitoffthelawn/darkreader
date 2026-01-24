@@ -13,6 +13,7 @@ test('Color parsing', () => {
     expect(parse('rgb(255 0 153 / 1)')).toEqual({r: 255, g: 0, b: 153, a: 1});
     expect(parse('rgb(255 0 153 / 100%)')).toEqual({r: 255, g: 0, b: 153, a: 1});
     expect(parse('rgb(255, 0, 153.6, 1)')).toEqual({r: 255, g: 0, b: 154, a: 1});
+    expect(parse('rgb(0 0 0/0.04)')).toEqual({r: 0, g: 0, b: 0, a: 0.04});
     expect(parse('rgb(1e2, .5e1, .5e0, +.25e2%)')).toEqual({r: 100, g: 5, b: 1, a: 0.25});
 
     expect(parse('rgba(51, 170, 51, .1)')).toEqual({r: 51, g: 170, b: 51, a: 0.1});
@@ -60,9 +61,9 @@ test('Color parsing', () => {
     expect(parse('InfoBackground')).toEqual({r: 251, g: 252, b: 197, a: 1});
     expect(parse('-webkit-focus-ring-color')).toEqual({r: 229, g: 151, b: 0, a: 1});
 
-    expect(() => parse('sponge')).toThrow('Unable to parse sponge');
-    expect(() => parse('hsl(0, 0%, 0%) rgb(0, 0, 0)')).toThrow('Unable to parse hsl(0, 0%, 0%) rgb(0, 0, 0)');
-    expect(() => parse('#hello')).toThrow('Unable to parse #hello');
+    expect(parse('sponge')).toBeNull();
+    expect(parse('hsl(0, 0%, 0%) rgb(0, 0, 0)')).toBeNull();
+    expect(parse('#hello')).toBeNull();
 });
 
 test('Stringify color', () => {
@@ -98,4 +99,5 @@ test('Color conversion', () => {
 test('Lower calc expressions', () => {
     expect(lowerCalcExpression('hsl(0, 0%, calc(95% - 3%))')).toEqual('hsl(0, 0%, 92%)');
     expect(lowerCalcExpression('hsl(0, calc(25% + 12%), calc(95% - 3%))')).toEqual('hsl(0, 37%, 92%)');
+    expect(lowerCalcExpression('rgb(calc(216.75 + 153 * .15), calc(216.75 + 205 * .15), calc(216.75 + 255 * .15))')).toEqual('rgb(240, 248, 255)');
 });

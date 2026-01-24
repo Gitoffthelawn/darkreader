@@ -1,11 +1,14 @@
-import {readFile} from 'fs';
-import {compareURLPatterns} from '../../../src/utils/url';
-import {parseArray, formatArray, getTextDiffIndex, getTextPositionMessage} from '../../../src/utils/text';
+import {readFile} from 'node:fs';
+
+import type {StaticTheme} from '../../../src/definitions';
 import {parseInversionFixes, formatInversionFixes} from '../../../src/generators/css-filter';
+import {parseDetectorHints, formatDetectorHints} from '../../../src/generators/detector-hints';
 import {parseDynamicThemeFixes, formatDynamicThemeFixes} from '../../../src/generators/dynamic-theme';
 import {parseStaticThemes, formatStaticThemes} from '../../../src/generators/static-theme';
-import type {StaticTheme} from '../../../src/definitions';
-import {ParseColorSchemeConfig} from '../../../src/utils/colorscheme-parser';
+import {parseColorSchemeConfig} from '../../../src/utils/colorscheme-parser';
+import type {ParsedColorSchemeConfig} from '../../../src/utils/colorscheme-parser';
+import {parseArray, formatArray, getTextDiffIndex, getTextPositionMessage} from '../../../src/utils/text';
+import {compareURLPatterns} from '../../../src/utils/url';
 import {rootPath} from '../../support/test-utils';
 
 function readConfig(fileName: string) {
@@ -33,11 +36,42 @@ function throwIfDifferent(input: string, expected: string, message: string) {
     };
 }
 
+function formatColorSchemeConfig(scheme: ParsedColorSchemeConfig): string {
+    const names = Object.keys(scheme.dark);
+    const lines = [];
+    for (const name of names) {
+        lines.push(name);
+        lines.push('');
+        for (const color of ['dark', 'light']) {
+            const style = scheme[color as keyof ParsedColorSchemeConfig][name];
+            if (style) {
+                const {backgroundColor, textColor} = style;
+                lines.push(color.toUpperCase());
+                if (backgroundColor) {
+                    lines.push(`background: ${backgroundColor.toLowerCase()}`);
+                }
+                if (textColor) {
+                    lines.push(`text: ${textColor.toLowerCase()}`);
+                }
+                lines.push('');
+            }
+        }
+        lines.push('='.repeat(32));
+        lines.push('');
+    }
+    lines.pop();
+    lines.pop();
+    return lines.join('\n');
+}
+
 test('Dark Sites list', async () => {
     const file = await readConfig('dark-sites.config');
 
     // there is no \r character
     expect(file.indexOf('\r')).toEqual(-1);
+
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
 
     const sites = parseArray(file);
 
@@ -54,11 +88,70 @@ test('Dark Sites list', async () => {
     expect(throwIfDifferent(file, formatArray(sites), 'Dark Sites list format error')).not.toThrow();
 });
 
+test('Detector Hints config', async () => {
+    const file = await readConfig('detector-hints.config');
+
+    // there is no \r character
+    expect(file.indexOf('\r')).toEqual(-1);
+
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
+
+    const hints = parseDetectorHints(file);
+
+    // each hint has valid URL
+    expect(hints.every(({url}) => url.every(isURLPatternValid))).toBe(true);
+
+    // hints are sorted alphabetically
+    expect(hints.map(({url}) => url[0])).toEqual(hints.map(({url}) => url[0]).sort(compareURLPatterns));
+
+    // selectors should have no comma
+    const commaSelector = /\,(?![^\(|\"]*(\)|\"))/;
+    expect(hints.every(({target, match}) => ![target].concat(match).some((s) => commaSelector.test(s)))).toBe(true);
+
+    // only a single selector is allowed for target
+    expect(hints.every(({target, noDarkTheme, systemTheme}) => noDarkTheme || systemTheme || typeof target === 'string' && !target.includes('\n'))).toBe(true);
+
+    // hints are properly formatted
+    expect(throwIfDifferent(file, formatDetectorHints(hints), 'Detector Hints format error')).not.toThrow();
+
+    // should parse empty config
+    expect(parseDetectorHints('')).toEqual([]);
+
+    // should skip unsupported commands
+    expect(parseDetectorHints([
+        'inbox.google.com',
+        'mail.google.com',
+        'TARGET', 'a',
+        'MATCH', '.b', '#c',
+        'UNSUPPORTED', 'c',
+        '========',
+        'proton.me',
+        'SYSTEM THEME',
+        '========',
+        'twitter.com',
+        'UNSUPPORTED', 'a', 'b',
+        'TARGET', 'c',
+        'MATCH', '[d="e"]',
+        '========',
+        'wikipedia.org',
+        'NO DARK THEME',
+    ].join('\n'))).toEqual([
+        {url: ['inbox.google.com', 'mail.google.com'], target: 'a', match: ['.b', '#c']},
+        {url: ['proton.me'], systemTheme: true},
+        {url: ['twitter.com'], target: 'c', match: ['[d="e"]']},
+        {url: ['wikipedia.org'], noDarkTheme: true},
+    ] as any);
+});
+
 test('Dynamic Theme Fixes config', async () => {
     const file = await readConfig('dynamic-theme-fixes.config');
 
     // there is no \r character
     expect(file.indexOf('\r')).toEqual(-1);
+
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
 
     const fixes = parseDynamicThemeFixes(file);
 
@@ -103,7 +196,7 @@ test('Dynamic Theme Fixes config', async () => {
         {url: ['twitter.com'], invert: ['c', 'd']},
         {url: ['wikipedia.org'], ignoreInlineStyle: ['a', 'b']},
         {url: ['duckduckgo.com'], ignoreImageAnalysis: ['img[alt="Logo"]', 'canvas']},
-    ]);
+    ] as any);
 });
 
 test('Inversion Fixes config', async () => {
@@ -111,6 +204,9 @@ test('Inversion Fixes config', async () => {
 
     // there is no \r character
     expect(file.indexOf('\r')).toEqual(-1);
+
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
 
     const fixes = parseInversionFixes(file);
 
@@ -135,6 +231,9 @@ test('Static Themes config', async () => {
 
     // there is no \r character
     expect(file.indexOf('\r')).toEqual(-1);
+
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
 
     const themes = parseStaticThemes(file);
 
@@ -163,7 +262,10 @@ test('Colorscheme config', async () => {
     // there is no \r character
     expect(file.indexOf('\r')).toEqual(-1);
 
-    const {result: schemes, error} = ParseColorSchemeConfig(file);
+    // there are no trailing spaces
+    expect(file.indexOf(' \n')).toEqual(-1);
+
+    const {result: schemes, error} = parseColorSchemeConfig(file);
 
     // Their is no error
     expect(error).toBeNull();
@@ -173,4 +275,7 @@ test('Colorscheme config', async () => {
 
     // There is a default Light color scheme
     expect(schemes.light['Default']).toBeDefined();
+
+    // Check formatting
+    expect(formatColorSchemeConfig(schemes)).toEqual(file);
 });

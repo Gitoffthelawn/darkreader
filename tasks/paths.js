@@ -1,23 +1,31 @@
-const {dirname, join} = require('path');
-const packageJson = require.resolve('../package.json');
-const rootDir = dirname(packageJson);
-const rootPath = (...paths) => join(rootDir, ...paths);
+import {createRequire} from 'node:module';
+import {dirname, join} from 'node:path';
 
-module.exports = {
-    PLATFORM: {
-        CHROME: 'chrome',
-        CHROME_MV3: 'chrome-mv3',
-        FIREFOX: 'firefox',
-        THUNDERBIRD: 'thunderbird',
-    },
-    getDestDir: function ({debug, platform}) {
-        const buildTypeDir = `build/${debug ? 'debug' : 'release'}`;
-        return `${buildTypeDir}/${platform}`;
-    },
-    getTestDestDir: function () {
-        return `build/tests`;
-    },
+let rootDir = dirname(createRequire(import.meta.url).resolve('../package.json'));
 
+/**
+ * @param  {string} path
+ * @returns {string}
+ */
+export const absolutePath = (path) => {
+    return join(rootDir, path);
+};
+
+/**
+ * @param {string} dir
+ */
+export function setRootDir(dir) {
+    rootDir = dir;
+}
+
+export function getDestDir({debug, platform}) {
+    const buildTypeDir = `build/${debug ? 'debug' : 'release'}`;
+    return `${buildTypeDir}/${platform}`;
+}
+
+export default {
+    getDestDir,
     rootDir,
-    rootPath,
+    absolutePath,
+    setRootDir,
 };

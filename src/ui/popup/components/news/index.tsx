@@ -1,8 +1,9 @@
 import {m} from 'malevic';
-import {Button} from '../../../controls';
+
+import type {News} from '../../../../definitions';
 import {BLOG_URL} from '../../../../utils/links';
 import {getLocalMessage, getUILanguage} from '../../../../utils/locales';
-import type {News} from '../../../../definitions';
+import {Button} from '../../../controls';
 
 interface NewsProps {
     news: News[];
@@ -36,10 +37,13 @@ export function NewsGroup({news, expanded, onNewsOpen, onClose}: NewsProps) {
                             class={{
                                 'news__event': true,
                                 'news__event--unread': !event.read,
-                                'news__event--important': event.important,
+                                'news__event--has-icon': event.icon,
                             }}
                         >
                             <a class="news__event__link" onclick={() => onNewsOpen(event)} href={event.url} target="_blank" rel="noopener noreferrer">
+                                {event.icon ?
+                                    <span class="news__event__icon" style={{'background-image': `url('${event.icon}')`}}></span>
+                                    : null}
                                 <span class="news__event__date">
                                     {formattedDate}
                                 </span>

@@ -1,21 +1,22 @@
 import {m} from 'malevic';
 import {sync} from 'malevic/dom';
-import Body from './components/body';
-import Connector from '../connect/connector';
-import type {ExtensionActions, ExtensionData, TabInfo} from '../../definitions';
 
-function renderBody(data: ExtensionData, tab: TabInfo, actions: ExtensionActions) {
-    sync(document.body, <Body data={data} tab={tab} actions={actions} />);
+import type {ExtensionActions, ExtensionData} from '../../definitions';
+import Connector from '../connect/connector';
+
+import Body from './components/body';
+
+function renderBody(data: ExtensionData, actions: ExtensionActions) {
+    sync(document.body, <Body data={data} actions={actions} />);
 }
 
 async function start() {
     const connector = new Connector();
-    window.addEventListener('unload', () => connector.disconnect());
+    window.addEventListener('unload', () => connector.disconnect(), {passive: true});
 
     const data = await connector.getData();
-    const tab = await connector.getActiveTabInfo();
-    renderBody(data, tab, connector);
-    connector.subscribeToChanges((data) => renderBody(data, tab, connector));
+    renderBody(data, connector);
+    connector.subscribeToChanges((data) => renderBody(data, connector));
 }
 
 start();

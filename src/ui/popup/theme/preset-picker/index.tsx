@@ -1,14 +1,19 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
-import type {ThemePreset} from '../../../../definitions';
+
+import type {ThemePreset, ViewProps} from '../../../../definitions';
+import {generateUID} from '../../../../utils/uid';
 import {isURLInList, isURLMatched, getURLHostOrProtocol} from '../../../../utils/url';
 import {DropDown, MessageBox} from '../../../controls';
-import type {ViewProps} from '../../types';
-import {generateUID} from '../../../../utils/uid';
+import type {DropDownOption} from '../../../controls/dropdown';
+
+interface PresetItemStore {
+    isConfirmationVisible: boolean;
+}
 
 function PresetItem(props: ViewProps & {preset: ThemePreset}) {
     const context = getContext();
-    const store = context.store as {isConfirmationVisible: boolean};
+    const store: PresetItemStore = context.store;
 
     function onRemoveClick(e: MouseEvent) {
         e.stopPropagation();
@@ -46,12 +51,13 @@ function PresetItem(props: ViewProps & {preset: ThemePreset}) {
 const MAX_ALLOWED_PRESETS = 3;
 
 export default function PresetPicker(props: ViewProps) {
-    const host = getURLHostOrProtocol(props.tab.url);
+    const tab = props.data.activeTab;
+    const host = getURLHostOrProtocol(tab.url);
     const preset = props.data.settings.presets.find(
-        ({urls}) => isURLInList(props.tab.url, urls)
+        ({urls}) => isURLInList(tab.url, urls)
     );
     const custom = props.data.settings.customThemes.find(
-        ({url}) => isURLInList(props.tab.url, url)
+        ({url}) => isURLInList(tab.url, url)
     );
 
     const selectedPresetId = custom ? 'custom' : preset ? preset.id : 'default';
@@ -66,7 +72,7 @@ export default function PresetPicker(props: ViewProps) {
         }
         return {
             id: preset.id,
-            content: <PresetItem {...props} preset={preset} />
+            content: <PresetItem {...props} preset={preset} />,
         };
     });
     const customSitePresetOption = {
@@ -79,14 +85,14 @@ export default function PresetPicker(props: ViewProps) {
         ...userPresetsOptions,
         addNewPresetOption,
         customSitePresetOption,
-    ].filter(Boolean);
+    ].filter(Boolean) as Array<DropDownOption<string>>;
 
     function onPresetChange(id: string) {
-        const filteredCustomThemes = props.data.settings.customThemes.filter(({url}) => !isURLInList(props.tab.url, url));
+        const filteredCustomThemes = props.data.settings.customThemes.filter(({url}) => !isURLInList(tab.url, url));
         const filteredPresets = props.data.settings.presets.map((preset) => {
             return {
                 ...preset,
-                urls: preset.urls.filter((template) => !isURLMatched(props.tab.url, template)),
+                urls: preset.urls.filter((template) => !isURLMatched(tab.url, template)),
             };
         });
         if (id === 'default') {
@@ -114,7 +120,7 @@ export default function PresetPicker(props: ViewProps) {
 
             const extended = filteredPresets.concat({
                 id: `preset-${generateUID()}`,
-                name: newPresetName,
+                name: newPresetName!,
                 urls: [host],
                 theme: {...props.data.settings.theme},
             });
@@ -128,7 +134,7 @@ export default function PresetPicker(props: ViewProps) {
                 if (preset.id === chosenPresetId) {
                     return {
                         ...preset,
-                        urls: preset.urls.concat(host)
+                        urls: preset.urls.concat(host),
                     };
                 }
                 return preset;

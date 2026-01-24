@@ -1,24 +1,28 @@
 {
     "compilerOptions": {
         "target": "ES2019",
-        "baseUrl": ".",
+        "baseUrl": "./",
         "module": "ES2015",
         "moduleResolution": "node",
         "lib": [
-            "ES2015",
-            "ES2017",
+            "ES2022",
             "Dom",
             "DOM.Iterable"
         ],
         "types": [
-            "chrome",
-            "offscreencanvas"
+            "chrome"
         ],
         "allowJs": true,
         "downlevelIteration": true,
         "noImplicitAny": true,
+        "noUnusedLocals": true,
         "resolveJsonModule": true,
+        "strictNullChecks": true,
         "jsx": "react",
         "jsxFactory": "m",
+        "noEmit": true,
+        "paths": {
+            "@plus/*": ["./stubs/*"]
+        }
     }
 }

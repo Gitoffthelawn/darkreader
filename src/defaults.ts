@@ -1,7 +1,12 @@
-import type {ParsedColorSchemeConfig} from './utils/colorscheme-parser';
+import {extendThemeDefaults} from '@plus/defaults';
 import type {Theme, UserSettings} from './definitions';
-import ThemeEngines from './generators/theme-engines';
-import {isMacOS, isWindows, isCSSColorSchemePropSupported} from './utils/platform';
+import {ThemeEngine} from './generators/theme-engines';
+import {AutomationMode} from './utils/automation';
+import type {ParsedColorSchemeConfig} from './utils/colorscheme-parser';
+import {isMacOS, isWindows, isCSSColorSchemePropSupported, isEdge, isMobile} from './utils/platform';
+
+declare const __CHROMIUM_MV3__: boolean;
+declare const __PLUS__: boolean;
 
 export const DEFAULT_COLORS = {
     darkScheme: {
@@ -23,18 +28,23 @@ export const DEFAULT_THEME: Theme = {
     useFont: false,
     fontFamily: isMacOS ? 'Helvetica Neue' : isWindows ? 'Segoe UI' : 'Open Sans',
     textStroke: 0,
-    engine: ThemeEngines.dynamicTheme,
+    engine: ThemeEngine.dynamicTheme,
     stylesheet: '',
     darkSchemeBackgroundColor: DEFAULT_COLORS.darkScheme.background,
     darkSchemeTextColor: DEFAULT_COLORS.darkScheme.text,
     lightSchemeBackgroundColor: DEFAULT_COLORS.lightScheme.background,
     lightSchemeTextColor: DEFAULT_COLORS.lightScheme.text,
-    scrollbarColor: isMacOS ? '' : 'auto',
+    scrollbarColor: '',
     selectionColor: 'auto',
-    styleSystemControls: !isCSSColorSchemePropSupported,
+    styleSystemControls: __CHROMIUM_MV3__ ? false : !isCSSColorSchemePropSupported,
     lightColorScheme: 'Default',
     darkColorScheme: 'Default',
+    immediateModify: false,
 };
+
+if (__PLUS__) {
+    extendThemeDefaults(DEFAULT_THEME);
+}
 
 export const DEFAULT_COLORSCHEME: ParsedColorSchemeConfig = {
     light: {
@@ -51,20 +61,38 @@ export const DEFAULT_COLORSCHEME: ParsedColorSchemeConfig = {
     },
 };
 
+const filterModeSites = [
+    '*.officeapps.live.com',
+    '*.sharepoint.com',
+    'docs.google.com',
+    'onedrive.live.com',
+];
+
 export const DEFAULT_SETTINGS: UserSettings = {
+    schemeVersion: 0,
     enabled: true,
     fetchNews: true,
     theme: DEFAULT_THEME,
     presets: [],
-    customThemes: [],
-    siteList: [],
-    siteListEnabled: [],
-    applyToListedOnly: false,
+    customThemes: filterModeSites.map((url) => {
+        const engine: ThemeEngine = ThemeEngine.cssFilter;
+        return {
+            url: [url],
+            theme: {...DEFAULT_THEME, engine},
+            builtIn: true,
+        };
+    }),
+    enabledByDefault: true,
+    enabledFor: [],
+    disabledFor: [],
     changeBrowserTheme: false,
     syncSettings: true,
     syncSitesFixes: false,
-    automation: '',
-    automationBehaviour: 'OnOff',
+    automation: {
+        enabled: isEdge && isMobile ? true : false,
+        mode: isEdge && isMobile ? AutomationMode.SYSTEM : AutomationMode.NONE,
+        behavior: 'OnOff',
+    },
     time: {
         activation: '18:00',
         deactivation: '9:00',
@@ -74,7 +102,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
         longitude: null,
     },
     previewNewDesign: false,
+    previewNewestDesign: false,
     enableForPDF: true,
     enableForProtectedPages: false,
     enableContextMenus: false,
+    detectDarkTheme: true,
 };

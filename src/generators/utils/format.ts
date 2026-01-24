@@ -9,10 +9,10 @@ interface SitesFixesFormatOptions {
     props: string[];
     getPropCommandName: (prop: string) => string;
     formatPropValue: (prop: string, value: string | string[]) => string;
-    shouldIgnoreProp: (props: string, value: string | string[]) => boolean;
+    shouldIgnoreProp: (prop: string, value: string | string[]) => boolean;
 }
 
-export function formatSitesFixesConfig(fixes: SiteFix[], options: SitesFixesFormatOptions) {
+export function formatSitesFixesConfig(fixes: SiteFix[], options: SitesFixesFormatOptions): string {
     const lines: string[] = [];
 
     fixes.forEach((fix, i) => {
