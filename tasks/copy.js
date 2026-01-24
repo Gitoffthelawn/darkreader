@@ -1,67 +1,99 @@
-const fs = require('fs-extra');
-const globby = require('globby');
-const {getDestDir} = require('./paths');
-const reload = require('./reload');
-const {createTask} = require('./task');
+// @ts-check
+import {getDestDir} from './paths.js';
+import {PLATFORM} from './platform.js';
+import * as reload from './reload.js';
+import {createTask} from './task.js';
+import {pathExists, copyFile, getPaths} from './utils.js';
 
-const srcDir = 'src';
-const cwdPaths = [
-    'background/index.html',
-    'config/**/*.config',
-    'icons/**/*.*',
-    'ui/assets/**/*.*',
-    'ui/popup/compatibility.js',
-    'manifest.json',
+/** @typedef {import('chokidar').FSWatcher} FSWatcher */
+/** @typedef {import('./types').CopyEntry} CopyEntry */
+
+/** @type {CopyEntry[]} */
+const copyEntries = [
+    {
+        path: 'config',
+        reloadType: reload.FULL,
+    },
+    {
+        path: 'icons',
+        reloadType: reload.FULL,
+    },
+    {
+        path: 'ui/assets',
+        reloadType: reload.UI,
+    },
+    {
+        path: 'ui/popup/compatibility.js',
+        reloadType: reload.UI,
+        platforms: [PLATFORM.CHROMIUM_MV2],
+    },
+    {
+        path: 'plus/assets',
+        reloadType: reload.UI,
+        platforms: [PLATFORM.CHROMIUM_MV2_PLUS],
+    },
 ];
-const paths = cwdPaths.map((path) => `${srcDir}/${path}`);
 
-function getCwdPath(/** @type {string} */srcPath) {
-    return srcPath.substring(srcDir.length + 1);
-}
+/**
+ * @param {string} srcDir
+ * @param {CopyEntry[]} copyEntries
+ * @returns {ReturnType<typeof createTask>}
+ */
+export function createCopyTask(srcDir, copyEntries) {
+    const paths = copyEntries.map((entry) => entry.path).map((path) => `${srcDir}/${path}`);
 
-async function patchManifest({debug, firefox, thunderbird}) {
-    const manifest = await fs.readJson(`${srcDir}/manifest.json`);
-    const fireFoxPatch = await fs.readJson(`${srcDir}/manifest-firefox.json`);
-    const thunderBirdPatch = await fs.readJson(`${srcDir}/manifest-thunderbird.json`);
-    const patched = firefox ? {...manifest, ...fireFoxPatch} : {...manifest, ...thunderBirdPatch};
-    const destDir = getDestDir({debug, firefox, thunderbird});
-    await fs.writeJson(`${destDir}/manifest.json`, patched, {spaces: 4});
-}
+    /** @type {(path: string) => string} */
+    const getCwdPath = (srcPath) => {
+        return srcPath.substring(srcDir.length + 1);
+    };
 
-async function copyFile(path, {debug, firefox, thunderbird}) {
-    const cwdPath = getCwdPath(path);
-    const destDir = getDestDir({debug, firefox, thunderbird});
-    if ((firefox || thunderbird) && cwdPath === 'manifest.json') {
-        await patchManifest({debug, firefox, thunderbird});
-    } else {
+    /** @type {(path: string, options: {debug: boolean; platform: any}) => Promise<void>} */
+    const copyEntry = async (path, {debug, platform}) => {
+        const cwdPath = getCwdPath(path);
+        const destDir = getDestDir({debug, platform});
         const src = `${srcDir}/${cwdPath}`;
         const dest = `${destDir}/${cwdPath}`;
-        await fs.copy(src, dest);
-    }
-}
+        await copyFile(src, dest);
+    };
 
-async function copy({debug}) {
-    const files = await globby(paths);
-    for (const file of files) {
-        await copyFile(file, {debug, firefox: false});
-        await copyFile(file, {debug, firefox: true});
-        await copyFile(file, {debug, firefox: false, thunderbird: true});
-    }
-}
-
-module.exports = createTask(
-    'copy',
-    copy,
-).addWatcher(
-    paths,
-    async (changedFiles) => {
-        for (const file of changedFiles) {
-            if (await fs.exists(file)) {
-                await copyFile(file, {debug: true, firefox: false, thunderbird: false});
-                await copyFile(file, {debug: true, firefox: true, thunderbird: false});
-                await copyFile(file, {debug: true, firefox: false, thunderbird: true});
+    const copyAll = async ({platforms, debug}) => {
+        const promises = [];
+        const enabledPlatforms = Object.values(PLATFORM).filter((platform) => platform !== PLATFORM.API && platforms[platform]);
+        for (const entry of copyEntries) {
+            if (entry.platforms && !entry.platforms.some((platform) => platforms[platform])) {
+                continue;
+            }
+            const files = await getPaths(`${srcDir}/${entry.path}`);
+            for (const file of files) {
+                for (const platform of enabledPlatforms) {
+                    if (entry.platforms === undefined || entry.platforms.includes(platform)) {
+                        promises.push(copyEntry(file, {debug, platform}));
+                    }
+                }
             }
         }
-        reload({type: reload.FULL});
-    },
-);
+        await Promise.all(promises);
+    };
+
+    /** @type {(changedFiles: string[], watcher: FSWatcher, platforms: any) => Promise<void>} */
+    const onChange = async (changedFiles, _, platforms) => {
+        for (const file of changedFiles) {
+            if (await pathExists(file)) {
+                for (const platform of Object.values(PLATFORM).filter((platform) => platforms[platform])) {
+                    await copyEntry(file, {debug: true, platform});
+                }
+            }
+        }
+        reload.reload({type: reload.FULL});
+    };
+
+    return createTask(
+        'copy',
+        copyAll,
+    ).addWatcher(
+        paths,
+        onChange,
+    );
+}
+
+export default createCopyTask('src', copyEntries);

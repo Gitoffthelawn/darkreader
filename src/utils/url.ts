@@ -1,11 +1,14 @@
-import type {UserSettings} from '../definitions';
-import {isIPV6, compareIPV6} from './ipv6';
+import type {UserSettings, TabInfo} from '../definitions';
+
+import {cachedFactory} from './cache';
+
+declare const __THUNDERBIRD__: boolean;
 
 let anchor: HTMLAnchorElement;
 
 export const parsedURLCache = new Map<string, URL>();
 
-function fixBaseURL($url: string) {
+function fixBaseURL($url: string): string {
     if (!anchor) {
         anchor = document.createElement('a');
     }
@@ -13,10 +16,10 @@ function fixBaseURL($url: string) {
     return anchor.href;
 }
 
-export function parseURL($url: string, $base: string = null) {
-    const key = `${$url}${$base ? ';' + $base : ''}`;
+export function parseURL($url: string, $base: string | null = null): URL {
+    const key = `${$url}${$base ? `;${$base}` : ''}`;
     if (parsedURLCache.has(key)) {
-        return parsedURLCache.get(key);
+        return parsedURLCache.get(key)!;
     }
     if ($base) {
         const parsedURL = new URL($url, fixBaseURL($base));
@@ -28,26 +31,56 @@ export function parseURL($url: string, $base: string = null) {
     return parsedURL;
 }
 
-export function getAbsoluteURL($base: string, $relative: string) {
+export function getAbsoluteURL($base: string, $relative: string): string {
     if ($relative.match(/^data\\?\:/)) {
         return $relative;
     }
-
+    // Check if relative starts with `//hostname...`.
+    // We have to add a protocol to make it absolute.
+    if (/^\/\//.test($relative)) {
+        return `${location.protocol}${$relative}`;
+    }
     const b = parseURL($base);
     const a = parseURL($relative, b.href);
     return a.href;
 }
 
-export function getURLHostOrProtocol($url: string) {
+// Check if any relative URL is on the window.location;
+// So that https://duck.com/ext.css would return true on https://duck.com/
+// But https://duck.com/styles/ext.css would return false on https://duck.com/
+// Visa versa https://duck.com/ext.css should return fasle on https://duck.com/search/
+// We're checking if any relative value within ext.css could potentially not be on the same path.
+export function isRelativeHrefOnAbsolutePath(href: string): boolean {
+    if (href.startsWith('data:')) {
+        return true;
+    }
+    const url = parseURL(href);
+
+    if (url.protocol !== location.protocol) {
+        return false;
+    }
+    if (url.hostname !== location.hostname) {
+        return false;
+    }
+    if (url.port !== location.port) {
+        return false;
+    }
+    // Now check if the path is on the same path as the base
+    // We do this by getting the pathname up until the last slash.
+    return url.pathname === location.pathname;
+}
+
+export function getURLHostOrProtocol($url: string): string {
     const url = new URL($url);
     if (url.host) {
         return url.host;
-    } else {
-        return url.protocol;
+    } else if (url.protocol === 'file:') {
+        return url.pathname;
     }
+    return url.protocol;
 }
 
-export function compareURLPatterns(a: string, b: string) {
+export function compareURLPatterns(a: string, b: string): number {
     return a.localeCompare(b);
 }
 
@@ -56,7 +89,7 @@ export function compareURLPatterns(a: string, b: string) {
  * @param url Site URL.
  * @paramlist List to search into.
  */
-export function isURLInList(url: string, list: string[]) {
+export function isURLInList(url: string, list: string[]): boolean {
     for (let i = 0; i < list.length; i++) {
         if (isURLMatched(url, list[i])) {
             return true;
@@ -71,127 +104,271 @@ export function isURLInList(url: string, list: string[]) {
  * @param urlTemplate URL template ("google.*", "youtube.com" etc).
  */
 export function isURLMatched(url: string, urlTemplate: string): boolean {
-    const isFirstIPV6 = isIPV6(url);
-    const isSecondIPV6 = isIPV6(urlTemplate);
-    if (isFirstIPV6 && isSecondIPV6) {
-        return compareIPV6(url, urlTemplate);
-    } else if (!isFirstIPV6 && !isSecondIPV6) {
-        const regex = createUrlRegex(urlTemplate);
-        return Boolean(url.match(regex));
-    } else {
+    if (isRegExp(urlTemplate)) {
+        const regexp = createRegExp(urlTemplate);
+        return regexp ? regexp.test(url) : false;
+    }
+    return matchURLPattern(url, urlTemplate);
+}
+
+const URL_CACHE_SIZE = 32;
+const prepareURL = cachedFactory((url: string) => {
+    let parsed: URL;
+    try {
+        parsed = new URL(url);
+    } catch (err) {
+        return null;
+    }
+    const {hostname, pathname, protocol, port} = parsed;
+    const hostParts = hostname.split('.').reverse();
+    const pathParts = pathname.split('/').slice(1);
+    if (!pathParts[pathParts.length - 1]) {
+        pathParts.splice(pathParts.length - 1, 1);
+    }
+    return {
+        hostParts,
+        pathParts,
+        port,
+        protocol,
+    };
+}, URL_CACHE_SIZE);
+
+const URL_MATCH_CACHE_SIZE = 32 * 1024;
+const preparePattern = cachedFactory((pattern: string) => {
+    if (!pattern) {
+        return null;
+    }
+
+    const exactStart = pattern.startsWith('^');
+    const exactEnd = pattern.endsWith('$');
+    if (exactStart) {
+        pattern = pattern.substring(1);
+    }
+    if (exactEnd) {
+        pattern = pattern.substring(0, pattern.length - 1);
+    }
+
+    let protocol = '';
+    const protocolIndex = pattern.indexOf('://');
+    if (protocolIndex > 0) {
+        protocol = pattern.substring(0, protocolIndex + 1);
+        pattern = pattern.substring(protocolIndex + 3);
+    }
+
+    const slashIndex = pattern.indexOf('/');
+    const host = slashIndex < 0 ? pattern : pattern.substring(0, slashIndex);
+
+    let hostName = host;
+
+    let isIPv6 = false;
+    let ipV6End = -1;
+    if (host.startsWith('[')) {
+        ipV6End = host.indexOf(']');
+        if (ipV6End > 0) {
+            isIPv6 = true;
+        }
+    }
+
+    let port = '*';
+    const portIndex = host.lastIndexOf(':');
+    if (portIndex >= 0 && (!isIPv6 || ipV6End < portIndex)) {
+        hostName = host.substring(0, portIndex);
+        port = host.substring(portIndex + 1);
+    }
+
+    if (isIPv6) {
+        try {
+            const ipV6URL = new URL(`http://${hostName}`);
+            hostName = ipV6URL.hostname;
+        } catch (err) {
+        }
+    }
+
+    const hostParts = hostName.split('.').reverse();
+
+    const path = slashIndex < 0 ? '' : pattern.substring(slashIndex + 1);
+    const pathParts = path.split('/');
+    if (!pathParts[pathParts.length - 1]) {
+        pathParts.splice(pathParts.length - 1, 1);
+    }
+
+    return {
+        hostParts,
+        pathParts,
+        port,
+        exactStart,
+        exactEnd,
+        protocol,
+    };
+}, URL_MATCH_CACHE_SIZE);
+
+function matchURLPattern(url: string, pattern: string) {
+    const u = prepareURL(url);
+    const p = preparePattern(pattern);
+
+    if (
+        !(u && p)
+        || (p.hostParts.length > u.hostParts.length)
+        || (p.exactStart && p.hostParts.length !== u.hostParts.length)
+        || (p.exactEnd && p.pathParts.length !== u.pathParts.length)
+        || (p.port !== '*' && p.port !== u.port)
+        || (p.protocol && p.protocol !== u.protocol)
+    ) {
         return false;
     }
-}
 
-function createUrlRegex(urlTemplate: string): RegExp {
-    urlTemplate = urlTemplate.trim();
-    const exactBeginning = (urlTemplate[0] === '^');
-    const exactEnding = (urlTemplate[urlTemplate.length - 1] === '$');
-
-    urlTemplate = (urlTemplate
-        .replace(/^\^/, '') // Remove ^ at start
-        .replace(/\$$/, '') // Remove $ at end
-        .replace(/^.*?\/{2,3}/, '') // Remove scheme
-        .replace(/\?.*$/, '') // Remove query
-        .replace(/\/$/, '') // Remove last slash
-    );
-
-    let slashIndex: number;
-    let beforeSlash: string;
-    let afterSlash: string;
-    if ((slashIndex = urlTemplate.indexOf('/')) >= 0) {
-        beforeSlash = urlTemplate.substring(0, slashIndex); // google.*
-        afterSlash = urlTemplate.replace(/\$/g, '').substring(slashIndex); // /login/abc
-    } else {
-        beforeSlash = urlTemplate.replace(/\$/g, '');
-    }
-
-    //
-    // SCHEME and SUBDOMAINS
-
-    let result = (exactBeginning ?
-        '^(.*?\\:\\/{2,3})?' // Scheme
-        : '^(.*?\\:\\/{2,3})?([^\/]*?\\.)?' // Scheme and subdomains
-    );
-
-    //
-    // HOST and PORT
-
-    const hostParts = beforeSlash.split('.');
-    result += '(';
-    for (let i = 0; i < hostParts.length; i++) {
-        if (hostParts[i] === '*') {
-            hostParts[i] = '[^\\.\\/]+?';
-        }
-    }
-    result += hostParts.join('\\.');
-    result += ')';
-
-    //
-    // PATH and QUERY
-
-    if (afterSlash) {
-        result += '(';
-        result += afterSlash.replace('/', '\\/');
-        result += ')';
-    }
-
-    result += (exactEnding ?
-        '(\\/?(\\?[^\/]*?)?)$' // All following queries
-        : '(\\/?.*?)$' // All following paths and queries
-    );
-
-    //
-    // Result
-
-    return new RegExp(result, 'i');
-}
-
-export function isPDF(url: string) {
-    if (url.includes('.pdf')) {
-        if (url.includes('?')) {
-            url = url.substring(0, url.lastIndexOf('?'));
-        }
-        if (url.includes('#')) {
-            url = url.substring(0, url.lastIndexOf('#'));
-        }
-        if (
-            (url.match(/(wikipedia|wikimedia).org/i) && url.match(/(wikipedia|wikimedia)\.org\/.*\/[a-z]+\:[^\:\/]+\.pdf/i)) ||
-            (url.match(/timetravel\.mementoweb\.org\/reconstruct/i) && url.match(/\.pdf$/i))
-        ) {
+    for (let i = 0; i < p.hostParts.length; i++) {
+        const pHostPart = p.hostParts[i];
+        const uHostPart = u.hostParts[i];
+        if (pHostPart !== '*' && pHostPart !== uHostPart) {
             return false;
         }
-        if (url.endsWith('.pdf')) {
-            for (let i = url.length; i > 0; i--) {
-                if (url[i] === '=') {
-                    return false;
-                } else if (url[i] === '/') {
-                    return true;
-                }
+    }
+
+    if (
+        p.hostParts.length >= 2
+        && p.hostParts.at(-1) !== '*'
+        && (
+            p.hostParts.length < u.hostParts.length - 1
+            || (
+                p.hostParts.length === u.hostParts.length - 1
+                && u.hostParts.at(-1) !== 'www'
+            )
+        )
+    ) {
+        return false;
+    }
+
+    if (p.pathParts.length === 0) {
+        return true;
+    }
+
+    if (p.pathParts.length > u.pathParts.length) {
+        return false;
+    }
+
+    for (let i = 0; i < p.pathParts.length; i++) {
+        const pPathPart = p.pathParts[i];
+        const uPathPart = u.pathParts[i];
+        if (pPathPart !== '*' && pPathPart !== uPathPart) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function isRegExp(pattern: string) {
+    return pattern.startsWith('/') && pattern.endsWith('/') && pattern.length > 2;
+}
+
+const REGEXP_CACHE_SIZE = 1024;
+const createRegExp = cachedFactory((pattern: string) => {
+    if (pattern.startsWith('/')) {
+        pattern = pattern.substring(1);
+    }
+    if (pattern.endsWith('/')) {
+        pattern = pattern.substring(0, pattern.length - 1);
+    }
+    try {
+        return new RegExp(pattern);
+    } catch (err) {
+        return null;
+    }
+}, REGEXP_CACHE_SIZE);
+
+export function isPDF(url: string): boolean {
+    try {
+        const {hostname, pathname} = new URL(url);
+        if (pathname.includes('.pdf')) {
+            if (
+                (hostname.match(/(wikipedia|wikimedia)\.org$/i) && pathname.match(/^\/.*\/[a-z]+\:[^\:\/]+\.pdf/i)) ||
+                (hostname.match(/timetravel\.mementoweb\.org$/i) && pathname.match(/^\/reconstruct/i) && pathname.match(/\.pdf$/i)) ||
+                (hostname.match(/dropbox\.com$/i) && pathname.match(/^\/s\//i) && pathname.match(/\.pdf$/i))
+            ) {
+                return false;
             }
-        } else {
-            return false;
+            if (pathname.endsWith('.pdf')) {
+                for (let i = pathname.length; i >= 0; i--) {
+                    if (pathname[i] === '=') {
+                        return false;
+                    } else if (pathname[i] === '/') {
+                        return true;
+                    }
+                }
+            } else {
+                return false;
+            }
         }
+    } catch (e) {
+        // Do nothing
     }
     return false;
 }
 
-export function isURLEnabled(url: string, userSettings: UserSettings, {isProtected, isInDarkList}) {
+export function isURLEnabled(url: string, userSettings: UserSettings, {isProtected, isInDarkList, isDarkThemeDetected}: Partial<TabInfo>, isAllowedFileSchemeAccess = true): boolean {
+    if (isLocalFile(url) && !isAllowedFileSchemeAccess) {
+        return false;
+    }
     if (isProtected && !userSettings.enableForProtectedPages) {
         return false;
+    }
+    // Only URL's with emails are getting here on thunderbird
+    // So we can skip the checks and just return true.
+    if (__THUNDERBIRD__) {
+        return true;
     }
     if (isPDF(url)) {
         return userSettings.enableForPDF;
     }
-    const isURLInUserList = isURLInList(url, userSettings.siteList);
-    const isURLInEnabledList = isURLInList(url, userSettings.siteListEnabled);
+    const isURLInDisabledList = isURLInList(url, userSettings.disabledFor);
+    const isURLInEnabledList = isURLInList(url, userSettings.enabledFor);
 
-    if (userSettings.applyToListedOnly && !isURLInEnabledList) {
-        return isURLInUserList;
+    if (!userSettings.enabledByDefault) {
+        return isURLInEnabledList;
     }
-
-    if (isURLInEnabledList && isInDarkList) {
+    if (isURLInEnabledList) {
         return true;
     }
-    return (!isInDarkList && !isURLInUserList);
+    if (isInDarkList || (userSettings.detectDarkTheme && isDarkThemeDetected)) {
+        return false;
+    }
+    return !isURLInDisabledList;
+}
+
+export function isFullyQualifiedDomain(candidate: string): boolean {
+    return /^[a-z0-9\.\-]+$/i.test(candidate) && candidate.indexOf('..') === -1;
+}
+
+export function isFullyQualifiedDomainWildcard(candidate: string): boolean {
+    if (!candidate.includes('*') || !/^[a-z0-9\.\-\*]+$/i.test(candidate)) {
+        return false;
+    }
+    const labels = candidate.split('.');
+    for (const label of labels) {
+        if (label !== '*' && !/^[a-z0-9\-]+$/i.test(label)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export function fullyQualifiedDomainMatchesWildcard(wildcard: string, candidate: string): boolean {
+    const wildcardLabels = wildcard.toLowerCase().split('.');
+    const candidateLabels = candidate.toLowerCase().split('.');
+    if (candidateLabels.length < wildcardLabels.length) {
+        return false;
+    }
+    while (wildcardLabels.length) {
+        const wildcardLabel = wildcardLabels.pop();
+        const candidateLabel = candidateLabels.pop();
+        if (wildcardLabel !== '*' && wildcardLabel !== candidateLabel) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export function isLocalFile(url: string): boolean {
+    return Boolean(url) && url.startsWith('file:///');
 }

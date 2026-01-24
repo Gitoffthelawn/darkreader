@@ -1,14 +1,19 @@
-const fs = require('fs-extra');
-const {getDestDir} = require('./paths');
-const {createTask} = require('./task');
+// @ts-check
+import {getDestDir} from './paths.js';
+import {PLATFORM} from './platform.js';
+import {createTask} from './task.js';
+import {removeFolder} from './utils.js';
 
-async function clean({debug}) {
-    await fs.remove(getDestDir({debug}));
-    await fs.remove(getDestDir({debug, firefox: true}));
-    await fs.remove(getDestDir({debug, thunderbird: true}));
+async function clean({platforms, debug}) {
+    const enabledPlatforms = Object.values(PLATFORM).filter((platform) => platform !== PLATFORM.API && platforms[platform]);
+    for (const platform of enabledPlatforms) {
+        await removeFolder(getDestDir({debug, platform}));
+    }
 }
 
-module.exports = createTask(
+const cleanTask = createTask(
     'clean',
     clean,
 );
+
+export default cleanTask;

@@ -1,14 +1,14 @@
 import {m} from 'malevic';
-import {Toggle, TextList, Shortcut} from '../../../controls';
-import {getLocalMessage} from '../../../../utils/locales';
+
 import type {ExtWrapper} from '../../../../definitions';
+import {getLocalMessage} from '../../../../utils/locales';
+import {Toggle, TextList, Shortcut} from '../../../controls';
 
 interface SiteListSettingsProps extends ExtWrapper {
     isFocused: boolean;
 }
 
 export default function SiteListSettings({data, actions, isFocused}: SiteListSettingsProps) {
-
     function isSiteUrlValid(value: string) {
         return /^([^\.\s]+?\.?)+$/.test(value);
     }
@@ -17,20 +17,22 @@ export default function SiteListSettings({data, actions, isFocused}: SiteListSet
         <section class="site-list-settings">
             <Toggle
                 class="site-list-settings__toggle"
-                checked={data.settings.applyToListedOnly}
+                checked={!data.settings.enabledByDefault}
                 labelOn={getLocalMessage('invert_listed_only')}
                 labelOff={getLocalMessage('not_invert_listed')}
-                onChange={(value) => actions.changeSettings({applyToListedOnly: value})}
+                onChange={(value) => actions.changeSettings({enabledByDefault: !value})}
             />
             <TextList
                 class="site-list-settings__text-list"
                 placeholder="google.com/maps"
-                values={data.settings.siteList}
+                values={data.settings.enabledByDefault ? data.settings.disabledFor : data.settings.enabledFor}
                 isFocused={isFocused}
                 onChange={(values) => {
-                    if (values.every(isSiteUrlValid)) {
-                        actions.changeSettings({siteList: values});
-                    }
+                    const siteList = values.filter(isSiteUrlValid);
+                    const changes = data.settings.enabledByDefault
+                        ? {disabledFor: siteList}
+                        : {enabledFor: siteList};
+                    actions.changeSettings(changes);
                 }}
             />
             <Shortcut

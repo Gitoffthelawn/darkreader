@@ -1,9 +1,13 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
 
+interface CollapsiblePanelStore {
+    activeGroup: string;
+}
+
 function CollapsiblePanel({}, ...groups: Array<Malevic.ComponentSpec<CollapsibleGroupProps>>) {
     const context = getContext();
-    const store = context.store as {activeGroup: string};
+    const store: CollapsiblePanelStore = context.store;
     if (store.activeGroup == null) {
         store.activeGroup = groups[0].props.id;
     }
@@ -18,6 +22,7 @@ function CollapsiblePanel({}, ...groups: Array<Malevic.ComponentSpec<Collapsible
                     store.activeGroup = spec.props.id;
                     context.refresh();
                 };
+
                 return {
                     ...spec,
                     props: {

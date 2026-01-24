@@ -1,8 +1,8 @@
-import '../polyfills';
+import '../support/polyfills';
 import {DEFAULT_THEME} from '../../../src/defaults';
 import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../../../src/inject/dynamic-theme';
 import {createStyleSheetModifier} from '../../../src/inject/dynamic-theme/stylesheet-modifier';
-import {multiline, timeout} from '../../test-utils';
+import {multiline, timeout} from '../support/test-utils';
 
 const theme = {
     ...DEFAULT_THEME,
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe('STYLE ELEMENTS', () => {
-    it('should fill CSSStyleSheet with overriden rules', () => {
+    it('should fill CSSStyleSheet with overridden rules', () => {
         const style = document.createElement('style');
         style.textContent = 'body { background-color: white; } h1 { color: black; }';
         container.append(style);
@@ -42,9 +42,9 @@ describe('STYLE ELEMENTS', () => {
 
         expect(override.cssRules.length).toBe(2);
         expect((override.cssRules[0] as CSSStyleRule).selectorText).toBe('body');
-        expect((override.cssRules[0] as CSSStyleRule).style.getPropertyValue('background-color')).toBe('rgb(0, 0, 0)');
+        expect((override.cssRules[0] as CSSStyleRule).style.getPropertyValue('background-color')).toBe('var(--darkreader-background-ffffff, #000000)');
         expect((override.cssRules[1] as CSSStyleRule).selectorText).toBe('h1');
-        expect((override.cssRules[1] as CSSStyleRule).style.getPropertyValue('color')).toBe('rgb(255, 255, 255)');
+        expect((override.cssRules[1] as CSSStyleRule).style.getPropertyValue('color')).toBe('var(--darkreader-text-000000, #ffffff)');
     });
 
     it('should override User Agent style', async () => {
@@ -81,6 +81,23 @@ describe('STYLE ELEMENTS', () => {
             '    h1 strong { color: red; }',
             '</style>',
             '<h1>Style <strong>with @import</strong>!</h1>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+
+        await timeout(50);
+        expect(getComputedStyle(container).backgroundColor).toBe('rgb(0, 0, 0)');
+        expect(getComputedStyle(container.querySelector('h1')).backgroundColor).toBe('rgb(102, 102, 102)');
+        expect(getComputedStyle(container.querySelector('h1')).color).toBe('rgb(255, 255, 255)');
+        expect(getComputedStyle(container.querySelector('h1 strong')).color).toBe('rgb(255, 26, 26)');
+    });
+
+    it('should override style with @import"..."', async () => {
+        container.innerHTML = multiline(
+            '<style>',
+            `    @import"data:text/css;utf8,${encodeURIComponent('h1 { background: gray; }')}";`,
+            '    h1 strong { color: red; }',
+            '</style>',
+            '<h1>Style <strong>with @import"..."</strong>!</h1>',
         );
         createOrUpdateDynamicTheme(theme, null, false);
 
@@ -148,7 +165,6 @@ describe('STYLE ELEMENTS', () => {
         expect(document.querySelector('.darkreader--sync')).toBe(null);
         expect(getComputedStyle(container.querySelector('h1')).color).toBe('rgb(255, 255, 255)');
         expect(getComputedStyle(container.querySelector('h1 strong')).color).toBe('rgb(255, 255, 255)');
-
     });
 
     it('should react to updated style', async () => {
@@ -163,7 +179,7 @@ describe('STYLE ELEMENTS', () => {
         style.sheet.insertRule('strong { color: red }');
         style.sheet.insertRule('body { background-color: pink }');
         await timeout(0);
-        expect((style.nextSibling as HTMLStyleElement).sheet.cssRules[0].cssText).toBe('body { background-color: rgb(50, 0, 9); }');
+        expect((style.nextSibling as HTMLStyleElement).sheet.cssRules[0].cssText).toBe('body { background-color: var(--darkreader-background-ffc0cb, #320009); }');
         expect(getComputedStyle(container.querySelector('h1')).color).toBe('rgb(141, 141, 141)');
         expect(getComputedStyle(container.querySelector('h1 strong')).color).toBe('rgb(255, 26, 26)');
         expect(getComputedStyle(document.body).backgroundColor).toBe('rgb(50, 0, 9)');
@@ -182,7 +198,6 @@ describe('STYLE ELEMENTS', () => {
         document.querySelector('.testcase-style').textContent = 'h1 strong { color: green; }';
         await timeout(0);
         expect(getComputedStyle(document.querySelector('h1 strong')).color).toBe('rgb(140, 255, 140)');
-
     });
 
     it('should react to a new style', async () => {

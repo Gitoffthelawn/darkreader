@@ -1,58 +1,91 @@
-import {readText} from './utils/network';
-import {parseArray} from '../utils/text';
+import {DEFAULT_COLORSCHEME} from '../defaults';
+import type {InversionFix, StaticTheme, DynamicThemeFix, DetectorHint} from '../definitions';
+import {indexSiteListConfig, indexSitesFixesConfig, isURLInSiteList} from '../generators/utils/parse';
+import type {SiteListIndex, SitePropsIndex} from '../generators/utils/parse';
+import type {ParsedColorSchemeConfig} from '../utils/colorscheme-parser';
+import {parseColorSchemeConfig} from '../utils/colorscheme-parser';
+import {CONFIG_URL_BASE} from '../utils/links';
 import {getDuration} from '../utils/time';
-import {parseInversionFixes} from '../generators/css-filter';
-import {parseDynamicThemeFixes} from '../generators/dynamic-theme';
-import {parseStaticThemes} from '../generators/static-theme';
-import type {InversionFix, StaticTheme, DynamicThemeFix} from '../definitions';
+
+import UserStorage from './user-storage';
+import {logWarn} from './utils/log';
+import {readText} from './utils/network';
 
 const CONFIG_URLs = {
     darkSites: {
-        remote: 'https://raw.githubusercontent.com/darkreader/darkreader/master/src/config/dark-sites.config',
+        remote: `${CONFIG_URL_BASE}/dark-sites.config`,
         local: '../config/dark-sites.config',
     },
     dynamicThemeFixes: {
-        remote: 'https://raw.githubusercontent.com/darkreader/darkreader/master/src/config/dynamic-theme-fixes.config',
+        remote: `${CONFIG_URL_BASE}/dynamic-theme-fixes.config`,
         local: '../config/dynamic-theme-fixes.config',
     },
     inversionFixes: {
-        remote: 'https://raw.githubusercontent.com/darkreader/darkreader/master/src/config/inversion-fixes.config',
+        remote: `${CONFIG_URL_BASE}/inversion-fixes.config`,
         local: '../config/inversion-fixes.config',
     },
     staticThemes: {
-        remote: 'https://raw.githubusercontent.com/darkreader/darkreader/master/src/config/static-themes.config',
+        remote: `${CONFIG_URL_BASE}/static-themes.config`,
         local: '../config/static-themes.config',
     },
+    colorSchemes: {
+        remote: `${CONFIG_URL_BASE}/color-schemes.drconf`,
+        local: '../config/color-schemes.drconf',
+    },
+    detectorHints: {
+        remote: `${CONFIG_URL_BASE}/detector-hints.config`,
+        local: '../config/detector-hints.config',
+    },
 };
+
 const REMOTE_TIMEOUT_MS = getDuration({seconds: 10});
 
+interface LocalConfig {
+    local: boolean;
+}
+
+interface Config extends LocalConfig {
+    name?: string;
+    local: boolean;
+    localURL: string;
+    remoteURL?: string;
+}
+
 export default class ConfigManager {
-    DARK_SITES?: string[];
-    DYNAMIC_THEME_FIXES?: DynamicThemeFix[];
-    INVERSION_FIXES?: InversionFix[];
-    STATIC_THEMES?: StaticTheme[];
+    private static DARK_SITES_INDEX: SiteListIndex | null;
+    static DETECTOR_HINTS_INDEX: SitePropsIndex<DetectorHint> | null;
+    static DETECTOR_HINTS_RAW: string | null;
+    static DYNAMIC_THEME_FIXES_INDEX: SitePropsIndex<DynamicThemeFix> | null;
+    static DYNAMIC_THEME_FIXES_RAW: string | null;
+    static INVERSION_FIXES_INDEX: SitePropsIndex<InversionFix> | null;
+    static INVERSION_FIXES_RAW: string | null;
+    static STATIC_THEMES_INDEX: SitePropsIndex<StaticTheme> | null;
+    static STATIC_THEMES_RAW: string | null;
+    static COLOR_SCHEMES_RAW: ParsedColorSchemeConfig | null;
 
-    raw = {
-        darkSites: null,
-        dynamicThemeFixes: null,
-        inversionFixes: null,
-        staticThemes: null,
+    static raw = {
+        darkSites: null as string | null,
+        detectorHints: null as string | null,
+        dynamicThemeFixes: null as string | null,
+        inversionFixes: null as string | null,
+        staticThemes: null as string | null,
+        colorSchemes: null as string | null,
     };
 
-    overrides = {
-        darkSites: null,
-        dynamicThemeFixes: null,
-        inversionFixes: null,
-        staticThemes: null,
+    static overrides = {
+        darkSites: null as string | null,
+        detectorHints: null as string | null,
+        dynamicThemeFixes: null as string | null,
+        inversionFixes: null as string | null,
+        staticThemes: null as string | null,
     };
 
-    private async loadConfig({
+    private static async loadConfig({
         name,
         local,
         localURL,
         remoteURL,
-        success,
-    }) {
+    }: Config) {
         let $config: string;
         const loadLocal = async () => await readText({url: localURL});
         if (local) {
@@ -61,94 +94,141 @@ export default class ConfigManager {
             try {
                 $config = await readText({
                     url: `${remoteURL}?nocache=${Date.now()}`,
-                    timeout: REMOTE_TIMEOUT_MS
+                    timeout: REMOTE_TIMEOUT_MS,
                 });
             } catch (err) {
                 console.error(`${name} remote load error`, err);
                 $config = await loadLocal();
             }
         }
-        success($config);
+        return $config;
     }
 
-    private async loadDarkSites({local}) {
-        await this.loadConfig({
+    private static async loadColorSchemes({local}: LocalConfig) {
+        const $config = await ConfigManager.loadConfig({
+            name: 'Color Schemes',
+            local,
+            localURL: CONFIG_URLs.colorSchemes.local,
+            remoteURL: CONFIG_URLs.colorSchemes.remote,
+        });
+        ConfigManager.raw.colorSchemes = $config;
+        ConfigManager.handleColorSchemes();
+    }
+
+    private static async loadDarkSites({local}: LocalConfig) {
+        const sites = await ConfigManager.loadConfig({
             name: 'Dark Sites',
             local,
             localURL: CONFIG_URLs.darkSites.local,
             remoteURL: CONFIG_URLs.darkSites.remote,
-            success: ($sites: string) => {
-                this.raw.darkSites = $sites;
-                this.handleDarkSites();
-            },
         });
+        ConfigManager.raw.darkSites = sites;
+        ConfigManager.handleDarkSites();
     }
 
-    private async loadDynamicThemeFixes({local}) {
-        await this.loadConfig({
+    private static async loadDetectorHints({local}: LocalConfig) {
+        const $config = await ConfigManager.loadConfig({
+            name: 'Detector Hints',
+            local,
+            localURL: CONFIG_URLs.detectorHints.local,
+            remoteURL: CONFIG_URLs.detectorHints.remote,
+        });
+        ConfigManager.raw.detectorHints = $config;
+        ConfigManager.handleDetectorHints();
+    }
+
+    private static async loadDynamicThemeFixes({local}: LocalConfig) {
+        const fixes = await ConfigManager.loadConfig({
             name: 'Dynamic Theme Fixes',
             local,
             localURL: CONFIG_URLs.dynamicThemeFixes.local,
             remoteURL: CONFIG_URLs.dynamicThemeFixes.remote,
-            success: ($fixes: string) => {
-                this.raw.dynamicThemeFixes = $fixes;
-                this.handleDynamicThemeFixes();
-            },
         });
+        ConfigManager.raw.dynamicThemeFixes = fixes;
+        ConfigManager.handleDynamicThemeFixes();
     }
 
-    private async loadInversionFixes({local}) {
-        await this.loadConfig({
+    private static async loadInversionFixes({local}: LocalConfig) {
+        const fixes = await ConfigManager.loadConfig({
             name: 'Inversion Fixes',
             local,
             localURL: CONFIG_URLs.inversionFixes.local,
             remoteURL: CONFIG_URLs.inversionFixes.remote,
-            success: ($fixes: string) => {
-                this.raw.inversionFixes = $fixes;
-                this.handleInversionFixes();
-            },
         });
+        ConfigManager.raw.inversionFixes = fixes;
+        ConfigManager.handleInversionFixes();
     }
 
-    private async loadStaticThemes({local}) {
-        await this.loadConfig({
+    private static async loadStaticThemes({local}: LocalConfig) {
+        const themes = await ConfigManager.loadConfig({
             name: 'Static Themes',
             local,
             localURL: CONFIG_URLs.staticThemes.local,
             remoteURL: CONFIG_URLs.staticThemes.remote,
-            success: ($themes: string) => {
-                this.raw.staticThemes = $themes;
-                this.handleStaticThemes();
-            },
         });
+        ConfigManager.raw.staticThemes = themes;
+        ConfigManager.handleStaticThemes();
     }
 
-    async load(config: {local: boolean}) {
+    static async load(config?: LocalConfig): Promise<void> {
+        if (!config) {
+            await UserStorage.loadSettings();
+            config = {
+                local: !UserStorage.settings.syncSitesFixes,
+            };
+        }
+
         await Promise.all([
-            this.loadDarkSites(config),
-            this.loadDynamicThemeFixes(config),
-            this.loadInversionFixes(config),
-            this.loadStaticThemes(config),
+            ConfigManager.loadColorSchemes(config),
+            ConfigManager.loadDarkSites(config),
+            ConfigManager.loadDetectorHints(config),
+            ConfigManager.loadDynamicThemeFixes(config),
+            ConfigManager.loadInversionFixes(config),
+            ConfigManager.loadStaticThemes(config),
         ]).catch((err) => console.error('Fatality', err));
     }
 
-    private handleDarkSites() {
-        const $sites = this.overrides.darkSites || this.raw.darkSites;
-        this.DARK_SITES = parseArray($sites);
+    private static handleColorSchemes(): void {
+        const $config = ConfigManager.raw.colorSchemes;
+        const {result, error} = parseColorSchemeConfig($config || '');
+        if (error) {
+            logWarn(`Color Schemes parse error, defaulting to fallback. ${error}.`);
+            ConfigManager.COLOR_SCHEMES_RAW = DEFAULT_COLORSCHEME;
+            return;
+        }
+        ConfigManager.COLOR_SCHEMES_RAW = result;
     }
 
-    handleDynamicThemeFixes() {
-        const $fixes = this.overrides.dynamicThemeFixes || this.raw.dynamicThemeFixes;
-        this.DYNAMIC_THEME_FIXES = parseDynamicThemeFixes($fixes);
+    private static handleDarkSites(): void {
+        const $sites = ConfigManager.overrides.darkSites || ConfigManager.raw.darkSites;
+        ConfigManager.DARK_SITES_INDEX = indexSiteListConfig($sites || '');
     }
 
-    handleInversionFixes() {
-        const $fixes = this.overrides.inversionFixes || this.raw.inversionFixes;
-        this.INVERSION_FIXES = parseInversionFixes($fixes);
+    private static handleDetectorHints(): void {
+        const $hints = ConfigManager.overrides.detectorHints || ConfigManager.raw.detectorHints || '';
+        ConfigManager.DETECTOR_HINTS_INDEX = indexSitesFixesConfig<DetectorHint>($hints);
+        ConfigManager.DETECTOR_HINTS_RAW = $hints;
     }
 
-    handleStaticThemes() {
-        const $themes = this.overrides.staticThemes || this.raw.staticThemes;
-        this.STATIC_THEMES = parseStaticThemes($themes);
+    static handleDynamicThemeFixes(): void {
+        const $fixes = ConfigManager.overrides.dynamicThemeFixes || ConfigManager.raw.dynamicThemeFixes || '';
+        ConfigManager.DYNAMIC_THEME_FIXES_INDEX = indexSitesFixesConfig<DynamicThemeFix>($fixes);
+        ConfigManager.DYNAMIC_THEME_FIXES_RAW = $fixes;
+    }
+
+    static handleInversionFixes(): void {
+        const $fixes = ConfigManager.overrides.inversionFixes || ConfigManager.raw.inversionFixes || '';
+        ConfigManager.INVERSION_FIXES_INDEX = indexSitesFixesConfig<InversionFix>($fixes);
+        ConfigManager.INVERSION_FIXES_RAW = $fixes;
+    }
+
+    static handleStaticThemes(): void {
+        const $themes = ConfigManager.overrides.staticThemes || ConfigManager.raw.staticThemes || '';
+        ConfigManager.STATIC_THEMES_INDEX = indexSitesFixesConfig<StaticTheme>($themes);
+        ConfigManager.STATIC_THEMES_RAW = $themes;
+    }
+
+    static isURLInDarkList(url: string): boolean {
+        return isURLInSiteList(url, ConfigManager.DARK_SITES_INDEX);
     }
 }

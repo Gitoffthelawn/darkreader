@@ -1,12 +1,18 @@
 import {getUILanguage} from './locales';
+import {isEdge, isMobile} from './platform';
 
+export const HOMEPAGE_URL = 'https://darkreader.org';
 export const BLOG_URL = 'https://darkreader.org/blog/';
-export const DEVTOOLS_DOCS_URL = 'https://github.com/darkreader/darkreader#how-to-contribute';
-export const DONATE_URL = 'https://opencollective.com/darkreader';
+export const NEWS_URL = 'https://darkreader.org/blog/posts.json';
+export const DEVTOOLS_DOCS_URL = 'https://github.com/darkreader/darkreader/blob/main/CONTRIBUTING.md';
+export const DONATE_URL = 'https://darkreader.org/support-us/';
 export const GITHUB_URL = 'https://github.com/darkreader/darkreader';
+export const MOBILE_URL = 'https://darkreader.org/tips/mobile/';
 export const PRIVACY_URL = 'https://darkreader.org/privacy/';
 export const TWITTER_URL = 'https://twitter.com/darkreaderapp';
 export const UNINSTALL_URL = 'https://darkreader.org/goodluck/';
+export const HELP_URL = 'https://darkreader.org/help';
+export const CONFIG_URL_BASE = 'https://raw.githubusercontent.com/darkreader/darkreader/main/src/config';
 
 const helpLocales = [
     'be',
@@ -15,20 +21,26 @@ const helpLocales = [
     'en',
     'es',
     'fr',
-    'nl',
     'it',
+    'ja',
+    'nl',
     'pt',
     'ru',
+    'sr',
+    'tr',
     'zh-CN',
     'zh-TW',
 ];
 
-export function getHelpURL() {
+export function getHelpURL(): string {
+    if (isEdge && isMobile) {
+        return `${HELP_URL}/mobile/`;
+    }
     const locale = getUILanguage();
     const matchLocale = helpLocales.find((hl) => hl === locale) || helpLocales.find((hl) => locale.startsWith(hl)) || 'en';
-    return `https://darkreader.org/help/${matchLocale}/`;
+    return `${HELP_URL}/${matchLocale}/`;
 }
 
-export function getBlogPostURL(postId: string) {
+export function getBlogPostURL(postId: string): string {
     return `${BLOG_URL}${postId}/`;
 }

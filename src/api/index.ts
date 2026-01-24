@@ -1,11 +1,12 @@
 import './chrome';
-import {setFetchMethod as setFetch} from './fetch';
 import {DEFAULT_THEME} from '../defaults';
 import type {Theme, DynamicThemeFix} from '../definitions';
-import ThemeEngines from '../generators/theme-engines';
-import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../inject/dynamic-theme';
+import {ThemeEngine} from '../generators/theme-engines';
+import {createOrUpdateDynamicThemeInternal, removeDynamicTheme} from '../inject/dynamic-theme';
 import {collectCSS} from '../inject/dynamic-theme/css-collection';
 import {isMatchMediaChangeEventListenerSupported} from '../utils/platform';
+
+import {setFetchMethod as setFetch} from './fetch';
 
 let isDarkReaderEnabled = false;
 const isIFrame = (() => {
@@ -17,53 +18,55 @@ const isIFrame = (() => {
     }
 })();
 
-export function enable(themeOptions: Partial<Theme> = {}, fixes: DynamicThemeFix = null) {
+export function enable(themeOptions: Partial<Theme> | null = {}, fixes: DynamicThemeFix | null = null): void {
     const theme = {...DEFAULT_THEME, ...themeOptions};
 
-    if (theme.engine !== ThemeEngines.dynamicTheme) {
+    if (theme.engine !== ThemeEngine.dynamicTheme) {
         throw new Error('Theme engine is not supported.');
     }
-    createOrUpdateDynamicTheme(theme, fixes, isIFrame);
+    // TODO: replace with createOrUpdateDynamicTheme() and make fixes signature
+    // DynamicThemeFix | DynamicThemeFix[]
+    createOrUpdateDynamicThemeInternal(theme, fixes, isIFrame);
     isDarkReaderEnabled = true;
 }
 
-export function isEnabled() {
+export function isEnabled(): boolean {
     return isDarkReaderEnabled;
 }
 
-export function disable() {
+export function disable(): void {
     removeDynamicTheme();
     isDarkReaderEnabled = false;
 }
 
-const darkScheme = matchMedia('(prefers-color-scheme: dark)');
+const darkScheme = typeof(matchMedia) === 'function' ? matchMedia('(prefers-color-scheme: dark)') : undefined;
 let store = {
-    themeOptions: null as Partial<Theme>,
-    fixes: null as DynamicThemeFix,
+    themeOptions: null as Partial<Theme> | null,
+    fixes: null as DynamicThemeFix | null,
 };
 
-function handleColorScheme() {
-    if (darkScheme.matches) {
+function handleColorScheme(): void {
+    if (darkScheme?.matches) {
         enable(store.themeOptions, store.fixes);
     } else {
         disable();
     }
 }
 
-export function auto(themeOptions: Partial<Theme> | false = {}, fixes: DynamicThemeFix = null) {
+export function auto(themeOptions: Partial<Theme> | false = {}, fixes: DynamicThemeFix | null = null): void {
     if (themeOptions) {
         store = {themeOptions, fixes};
         handleColorScheme();
         if (isMatchMediaChangeEventListenerSupported) {
-            darkScheme.addEventListener('change', handleColorScheme);
+            darkScheme?.addEventListener('change', handleColorScheme);
         } else {
-            darkScheme.addListener(handleColorScheme);
+            darkScheme?.addListener(handleColorScheme);
         }
     } else {
         if (isMatchMediaChangeEventListenerSupported) {
-            darkScheme.removeEventListener('change', handleColorScheme);
+            darkScheme?.removeEventListener('change', handleColorScheme);
         } else {
-            darkScheme.removeListener(handleColorScheme);
+            darkScheme?.removeListener(handleColorScheme);
         }
         disable();
     }
