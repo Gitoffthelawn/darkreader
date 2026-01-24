@@ -1,11 +1,13 @@
 import {isFirefox} from './platform';
 
-async function getOKResponse(url: string, mimeType?: string) {
+async function getOKResponse(url: string, mimeType?: string, origin?: string): Promise<Response> {
+    const credentials = origin && url.startsWith(`${origin}/`) ? undefined : 'omit';
     const response = await fetch(
         url,
         {
             cache: 'force-cache',
-            credentials: 'omit',
+            credentials,
+            referrer: origin,
         },
     );
 
@@ -14,7 +16,7 @@ async function getOKResponse(url: string, mimeType?: string) {
         return response;
     }
 
-    if (mimeType && !response.headers.get('Content-Type').startsWith(mimeType)) {
+    if (mimeType && !(response.headers.get('Content-Type') === mimeType || response.headers.get('Content-Type')!.startsWith(`${mimeType};`))) {
         throw new Error(`Mime type mismatch when loading ${url}`);
     }
 
@@ -25,12 +27,17 @@ async function getOKResponse(url: string, mimeType?: string) {
     return response;
 }
 
-export async function loadAsDataURL(url: string, mimeType?: string) {
+export async function loadAsDataURL(url: string, mimeType?: string): Promise<string> {
     const response = await getOKResponse(url, mimeType);
     return await readResponseAsDataURL(response);
 }
 
-export async function readResponseAsDataURL(response: Response) {
+export async function loadAsBlob(url: string, mimeType?: string): Promise<Blob> {
+    const response = await getOKResponse(url, mimeType);
+    return await response.blob();
+}
+
+export async function readResponseAsDataURL(response: Response): Promise<string> {
     const blob = await response.blob();
     const dataURL = await (new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -40,7 +47,7 @@ export async function readResponseAsDataURL(response: Response) {
     return dataURL;
 }
 
-export async function loadAsText(url: string, mimeType?: string) {
-    const response = await getOKResponse(url, mimeType);
+export async function loadAsText(url: string, mimeType?: string, origin?: string): Promise<string> {
+    const response = await getOKResponse(url, mimeType, origin);
     return await response.text();
 }

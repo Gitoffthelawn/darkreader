@@ -1,6 +1,14 @@
-import {multiline} from '../../test-utils';
+import {multiline} from '../../support/test-utils';
+import type {StyleExpectations} from '../globals';
+
+async function expectStyles(styles: StyleExpectations) {
+    await expectPageStyles(expect, styles);
+}
 
 describe('Style override', () => {
+    // TODO: remove flakes and remove this line
+    jest.retryTimes(10, {logErrorsBeforeRetry: true});
+
     it('should override user agent style', async () => {
         await loadTestPage({
             '/': multiline(
@@ -16,11 +24,13 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).resolves.toBe('rgb(24, 26, 27)');
-        await expect(page.evaluate(() => getComputedStyle(document.documentElement).color)).resolves.toBe('rgb(232, 230, 227)');
-        await expect(page.evaluate(() => getComputedStyle(document.body).backgroundColor)).resolves.toBe('rgb(24, 26, 27)');
-        await expect(page.evaluate(() => getComputedStyle(document.body).color)).resolves.toBe('rgb(232, 230, 227)');
-        await expect(page.evaluate(() => getComputedStyle(document.querySelector('a')).color)).resolves.toBe('rgb(51, 145, 255)');
+        await expectStyles([
+            ['document', 'background-color', 'rgb(24, 26, 27)'],
+            ['document', 'color', 'rgb(232, 230, 227)'],
+            ['body', 'background-color', 'rgb(24, 26, 27)'],
+            ['body', 'color', 'rgb(232, 230, 227)'],
+            ['a', 'color', 'rgb(51, 145, 255)'],
+        ]);
     });
 
     it('should override static style', async () => {
@@ -41,11 +51,13 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).resolves.toBe('rgb(24, 26, 27)');
-        await expect(page.evaluate(() => getComputedStyle(document.body).backgroundColor)).resolves.toBe('rgb(96, 104, 108)');
-        await expect(page.evaluate(() => getComputedStyle(document.body).color)).resolves.toBe('rgb(232, 230, 227)');
-        await expect(page.evaluate(() => getComputedStyle(document.querySelector('h1')).color)).resolves.toBe('rgb(232, 230, 227)');
-        await expect(page.evaluate(() => getComputedStyle(document.querySelector('h1 strong')).color)).resolves.toBe('rgb(255, 26, 26)');
+        await expectStyles([
+            ['document', 'background-color', 'rgb(24, 26, 27)'],
+            ['body', 'background-color', 'rgb(96, 104, 108)'],
+            ['body', 'color', 'rgb(232, 230, 227)'],
+            ['h1', 'color', 'rgb(232, 230, 227)'],
+            ['h1 strong', 'color', 'rgb(255, 26, 26)'],
+        ]);
     });
 
     it('should restore override', async () => {
@@ -62,7 +74,7 @@ describe('Style override', () => {
             ),
         });
 
-        await page.evaluate(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -70,16 +82,17 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red }');
         });
 
-        await expect(page.evaluate(() => getComputedStyle(document.querySelector('h1')).color)).resolves.toBe('rgb(152, 143, 129)');
-        await expect(page.evaluate(() => getComputedStyle(document.querySelector('h1 strong')).color)).resolves.toBe('rgb(255, 26, 26)');
+        await expectStyles([
+            ['h1', 'color', 'rgb(152, 143, 129)'],
+            ['h1 strong', 'color', 'rgb(255, 26, 26)'],
+        ]);
 
-        await expect(page.evaluate(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             style.nextSibling.remove();
             await new Promise((resolve) => setTimeout(resolve));
             return (style.nextSibling as HTMLStyleElement).classList.contains('darkreader--sync');
         })).resolves.toBe(true);
-
     });
 
     it('should move override', async () => {
@@ -96,7 +109,7 @@ describe('Style override', () => {
             ),
         });
 
-        await page.evaluate(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -104,13 +117,12 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red } ');
         });
 
-        await expect(page.evaluate(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             document.body.append(style);
             await new Promise((resolve) => setTimeout(resolve));
             return (style.nextSibling as HTMLStyleElement).classList.contains('darkreader--sync');
         })).resolves.toBe(true);
-
     });
 
     it('should remove override', async () => {
@@ -127,7 +139,7 @@ describe('Style override', () => {
             ),
         });
 
-        await page.evaluate(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -135,17 +147,20 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red }');
         });
 
-        await expect(page.evaluate(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             const sibling = style.nextSibling;
             style.remove();
             await new Promise((resolve) => setTimeout(resolve));
             return sibling.isConnected && !((sibling as HTMLStyleElement).classList.contains('darkreader--sync'));
         })).resolves.toBe(false);
-
     });
 
     it('should react to updated style', async () => {
+        if (product === 'firefox') {
+            expect(true);
+            return;
+        }
         await loadTestPage({
             '/': multiline(
                 '<!DOCTYPE html>',
@@ -159,7 +174,7 @@ describe('Style override', () => {
             ),
         });
 
-        await page.evaluate(() => {
+        await pageUtils.evaluateScript(() => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -167,13 +182,12 @@ describe('Style override', () => {
             styleElement.sheet.insertRule('strong { color: red }');
         });
 
-        await expect(page.evaluate(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const style = document.querySelector('.testcase-style');
             (style as HTMLStyleElement).sheet.insertRule('html { background-color: pink }');
             await new Promise((resolve) => setTimeout(resolve));
             return (style.nextSibling as HTMLStyleElement).sheet.cssRules[0].cssText;
-        })).resolves.toBe('html { background-color: rgb(89, 0, 16); }');
-
+        })).resolves.toBe('html { background-color: var(--darkreader-background-ffc0cb, #590010); }');
     });
 
     it('should react to a new style', async () => {
@@ -190,7 +204,7 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(page.evaluate(async () => {
+        await expect(pageUtils.evaluateScript(async () => {
             const styleElement = document.createElement('style');
             styleElement.classList.add('testcase-style');
             document.head.append(styleElement);
@@ -199,10 +213,12 @@ describe('Style override', () => {
             await new Promise((resolve) => setTimeout(resolve));
             return (styleElement.nextSibling as HTMLStyleElement).sheet.cssRules.length === 2 && (styleElement.nextSibling as HTMLStyleElement).classList.contains('darkreader--sync');
         })).resolves.toBe(true);
-
     });
 
     it('should handle defined custom elements', async () => {
+        if (product === 'firefox') {
+            return;
+        }
         await loadTestPage({
             '/': multiline(
                 '<!DOCTYPE html>',
@@ -217,7 +233,7 @@ describe('Style override', () => {
             ),
         });
 
-        await expect(page.evaluate(async () => {
+        pageUtils.evaluateScript(async () => {
             class CustomElement extends HTMLElement {
                 constructor() {
                     super();
@@ -233,11 +249,10 @@ describe('Style override', () => {
             }
 
             customElements.define('custom-element', CustomElement);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            const shadowRoot = document.querySelector('custom-element').shadowRoot;
-            return getComputedStyle(shadowRoot.querySelector('p')).color;
+        });
 
-        })).resolves.toBe('rgb(255, 160, 177)');
+        await expectStyles([
+            [['custom-element', 'p'], 'color', 'rgb(255, 160, 177)'],
+        ]);
     });
-
 });

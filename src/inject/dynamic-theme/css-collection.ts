@@ -1,11 +1,12 @@
 import {forEach} from '../../utils/array';
+import {formatCSS} from '../../utils/css-text/format-css';
 import {loadAsDataURL} from '../../utils/network';
-import {getMatches, formatCSS} from '../../utils/text';
+import {getMatches} from '../../utils/text';
 
 const blobRegex = /url\(\"(blob\:.*?)\"\)/g;
 
 async function replaceBlobs(text: string) {
-    const promises = [];
+    const promises: Array<Promise<string>> = [];
     getMatches(blobRegex, text, 1).forEach((url) => {
         const promise = loadAsDataURL(url);
         promises.push(promise);
@@ -33,9 +34,12 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
 |  ____  \\|  |__/  ______  \\|  |__/  /|  |___|  ____  \\
 |__|   \\__\\____/__/      \\__\\_______/ |______|__|   \\__\\
                 https://darkreader.org
-*/`;
+*/
 
-export async function collectCSS() {
+/*! Dark reader generated CSS | Licensed under MIT https://github.com/darkreader/darkreader/blob/main/LICENSE */
+`;
+
+export async function collectCSS(): Promise<string> {
     const css = [banner];
 
     function addStaticCSS(selector: string, comment: string) {
@@ -53,14 +57,14 @@ export async function collectCSS() {
     addStaticCSS('.darkreader--invert', 'Invert Style');
     addStaticCSS('.darkreader--variables', 'Variables Style');
 
-    const modifiedCSS = [];
+    const modifiedCSS: string[] = [];
     document.querySelectorAll('.darkreader--sync').forEach((element: HTMLStyleElement) => {
-        forEach(element.sheet.cssRules, (rule) => {
+        forEach(element.sheet!.cssRules, (rule) => {
             rule && rule.cssText && modifiedCSS.push(rule.cssText);
         });
     });
 
-    if (modifiedCSS.length != 0) {
+    if (modifiedCSS.length) {
         const formattedCSS = formatCSS(modifiedCSS.join('\n'));
         css.push('/* Modified CSS */');
         css.push(await replaceBlobs(formattedCSS));
