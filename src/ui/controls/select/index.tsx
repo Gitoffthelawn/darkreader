@@ -1,6 +1,7 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
 import {withState, useState} from 'malevic/state';
+
 import Button from '../button';
 import TextBox from '../textbox';
 import VirtualScroll from '../virtual-scroll';
@@ -16,7 +17,7 @@ interface SelectProps {
 
 interface SelectState {
     isExpanded: boolean;
-    focusedIndex: number;
+    focusedIndex: number | null;
 }
 
 function Select(props: SelectProps) {
@@ -80,7 +81,7 @@ function Select(props: SelectProps) {
     function expandList() {
         setState({isExpanded: true});
         scrollToValue(props.value);
-        window.addEventListener('click', onOuterClick);
+        window.addEventListener('click', onOuterClick, {passive: true});
     }
 
     function collapseList() {
@@ -90,11 +91,11 @@ function Select(props: SelectProps) {
     function onSelectOption(e: MouseEvent) {
         let current = e.target as HTMLElement;
         while (current && !nodesValues.has(current)) {
-            current = current.parentElement;
+            current = current.parentElement!;
         }
 
         if (current) {
-            const value = nodesValues.get(current);
+            const value = nodesValues.get(current)!;
             props.onChange(value);
         }
 
@@ -109,7 +110,7 @@ function Select(props: SelectProps) {
     function removeValueNode(value: string) {
         const el = valueNodes.get(value);
         valueNodes.delete(value);
-        nodesValues.delete(el);
+        nodesValues.delete(el!);
     }
 
     return (

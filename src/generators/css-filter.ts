@@ -1,12 +1,17 @@
+import type {Theme, InversionFix} from '../definitions';
+import {compareChromeVersions, chromiumVersion, isFirefox, firefoxVersion} from '../utils/platform';
+import {parseArray, formatArray} from '../utils/text';
+import {compareURLPatterns, isURLInList} from '../utils/url';
+
+import {createTextStyle} from './text-style';
 import {formatSitesFixesConfig} from './utils/format';
 import {applyColorMatrix, createFilterMatrix} from './utils/matrix';
 import {parseSitesFixesConfig, getSitesFixesFor} from './utils/parse';
 import type {SitePropsIndex} from './utils/parse';
-import {parseArray, formatArray} from '../utils/text';
-import {compareURLPatterns, isURLInList} from '../utils/url';
-import {createTextStyle} from './text-style';
-import type {FilterConfig, InversionFix} from '../definitions';
-import {compareChromeVersions, chromiumVersion, isChromium} from '../utils/platform';
+
+
+declare const __CHROMIUM_MV2__: boolean;
+declare const __CHROMIUM_MV3__: boolean;
 
 export enum FilterMode {
     light = 0,
@@ -20,31 +25,43 @@ export enum FilterMode {
  * Bug report: https://bugs.chromium.org/p/chromium/issues/detail?id=501582
  * Patch: https://chromium-review.googlesource.com/c/chromium/src/+/1979258
  */
-export function hasPatchForChromiumIssue501582() {
-    return Boolean(
-        isChromium &&
+export function hasPatchForChromiumIssue501582(): boolean {
+    return __CHROMIUM_MV3__ || Boolean(
+        __CHROMIUM_MV2__ &&
         compareChromeVersions(chromiumVersion, '81.0.4035.0') >= 0
     );
 }
 
-export default function createCSSFilterStyleSheet(config: FilterConfig, url: string, frameURL: string, fixes: string, index: SitePropsIndex<InversionFix>) {
-    const filterValue = getCSSFilterValue(config);
-    const reverseFilterValue = 'invert(100%) hue-rotate(180deg)';
-    return cssFilterStyleSheetTemplate(filterValue, reverseFilterValue, config, url, frameURL, fixes, index);
+/**
+ * Since Firefox v102.0, they have changed to the new root behavior.
+ * This was already the case for Chromium v81.0.4035.0 and Firefox now
+ * switched over as well.
+ */
+export function hasFirefoxNewRootBehavior(): boolean {
+    return Boolean(
+        isFirefox &&
+        compareChromeVersions(firefoxVersion, '102.0') >= 0
+    );
 }
 
-export function cssFilterStyleSheetTemplate(filterValue: string, reverseFilterValue: string, config: FilterConfig, url: string, frameURL: string, fixes: string, index: SitePropsIndex<InversionFix>) {
-    const fix = getInversionFixesFor(frameURL || url, fixes, index);
+export default function createCSSFilterStyleSheet(config: Theme, url: string, isTopFrame: boolean, fixes: string, index: SitePropsIndex<InversionFix>): string {
+    const filterValue = getCSSFilterValue(config)!;
+    const reverseFilterValue = 'invert(100%) hue-rotate(180deg)';
+    return cssFilterStyleSheetTemplate('html', filterValue, reverseFilterValue, config, url, isTopFrame, fixes, index);
+}
+
+export function cssFilterStyleSheetTemplate(filterRoot: string, filterValue: string, reverseFilterValue: string, config: Theme, url: string, isTopFrame: boolean, fixes: string, index: SitePropsIndex<InversionFix>): string {
+    const fix = getInversionFixesFor(url, fixes, index);
 
     const lines: string[] = [];
 
     lines.push('@media screen {');
 
     // Add leading rule
-    if (filterValue && !frameURL) {
+    if (filterValue && isTopFrame) {
         lines.push('');
         lines.push('/* Leading rule */');
-        lines.push(createLeadingRule(filterValue));
+        lines.push(createLeadingRule(filterRoot, filterValue));
     }
 
     if (config.mode === FilterMode.dark) {
@@ -78,10 +95,11 @@ export function cssFilterStyleSheetTemplate(filterValue: string, reverseFilterVa
         lines.push('}');
     });
 
-    if (!frameURL) {
-        const light = [255, 255, 255];
+    if (isTopFrame) {
+        const light: [number, number, number] = [255, 255, 255];
         // If browser affected by Chromium Issue 501582, set dark background on html
-        const bgColor = !hasPatchForChromiumIssue501582() && config.mode === FilterMode.dark ?
+        // Or if browser is Firefox v102+
+        const bgColor = (!hasPatchForChromiumIssue501582() && !hasFirefoxNewRootBehavior()) && config.mode === FilterMode.dark ?
             applyColorMatrix(light, createFilterMatrix(config)).map(Math.round) :
             light;
         lines.push('');
@@ -103,7 +121,7 @@ export function cssFilterStyleSheetTemplate(filterValue: string, reverseFilterVa
     return lines.join('\n');
 }
 
-export function getCSSFilterValue(config: FilterConfig) {
+export function getCSSFilterValue(config: Theme): string | null {
     const filters: string[] = [];
 
     if (config.mode === FilterMode.dark) {
@@ -129,16 +147,16 @@ export function getCSSFilterValue(config: FilterConfig) {
     return filters.join(' ');
 }
 
-function createLeadingRule(filterValue: string): string {
+function createLeadingRule(filterRoot: string, filterValue: string): string {
     return [
-        'html {',
+        `${filterRoot} {`,
         `  -webkit-filter: ${filterValue} !important;`,
         `  filter: ${filterValue} !important;`,
-        '}'
+        '}',
     ].join('\n');
 }
 
-function joinSelectors(selectors: string[]) {
+function joinSelectors(selectors: string[]): string {
     return selectors.map((s) => s.replace(/\,$/, '')).join(',\n');
 }
 
@@ -221,7 +239,7 @@ const inversionFixesCommands: { [key: string]: keyof InversionFix } = {
     'CSS': 'css',
 };
 
-export function parseInversionFixes(text: string) {
+export function parseInversionFixes(text: string): InversionFix[] {
     return parseSitesFixesConfig<InversionFix>(text, {
         commands: Object.keys(inversionFixesCommands),
         getCommandPropName: (command) => inversionFixesCommands[command],
@@ -234,12 +252,12 @@ export function parseInversionFixes(text: string) {
     });
 }
 
-export function formatInversionFixes(inversionFixes: InversionFix[]) {
+export function formatInversionFixes(inversionFixes: InversionFix[]): string {
     const fixes = inversionFixes.slice().sort((a, b) => compareURLPatterns(a.url[0], b.url[0]));
 
     return formatSitesFixesConfig(fixes, {
         props: Object.values(inversionFixesCommands),
-        getPropCommandName: (prop) => Object.entries(inversionFixesCommands).find(([, p]) => p === prop)[0],
+        getPropCommandName: (prop) => Object.entries(inversionFixesCommands).find(([, p]) => p === prop)![0],
         formatPropValue: (prop, value) => {
             if (prop === 'css') {
                 return (value as string).trim().replace(/\n+/g, '\n');
@@ -251,6 +269,6 @@ export function formatInversionFixes(inversionFixes: InversionFix[]) {
                 return !value;
             }
             return !(Array.isArray(value) && value.length > 0);
-        }
+        },
     });
 }

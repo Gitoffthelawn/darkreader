@@ -1,44 +1,47 @@
-import {isPDF} from '../../utils/url';
 import {isFirefox, isEdge} from '../../utils/platform';
+import {getDuration} from '../../utils/time';
+import {isPDF} from '../../utils/url';
 
-declare const browser: {
-    commands: {
-        update({name, shortcut}: chrome.commands.Command): void;
-    };
-};
-
-export function canInjectScript(url: string) {
+export function canInjectScript(url: string | null | undefined): boolean {
+    if (url === 'about:blank') {
+        return false;
+    }
     if (isFirefox) {
-        return (url
+        return Boolean(url
             && !url.startsWith('about:')
             && !url.startsWith('moz')
             && !url.startsWith('view-source:')
+            && !url.startsWith('resource:')
+            && !url.startsWith('chrome:')
+            && !url.startsWith('jar:')
             && !url.startsWith('https://addons.mozilla.org/')
             && !isPDF(url)
         );
     }
     if (isEdge) {
-        return (url
+        return Boolean(url
             && !url.startsWith('chrome')
             && !url.startsWith('data')
             && !url.startsWith('devtools')
             && !url.startsWith('edge')
             && !url.startsWith('https://chrome.google.com/webstore')
+            && !url.startsWith('https://chromewebstore.google.com/')
             && !url.startsWith('https://microsoftedge.microsoft.com/addons')
             && !url.startsWith('view-source')
         );
     }
-    return (url
+    return Boolean(url
         && !url.startsWith('chrome')
         && !url.startsWith('https://chrome.google.com/webstore')
+        && !url.startsWith('https://chromewebstore.google.com/')
         && !url.startsWith('data')
         && !url.startsWith('devtools')
         && !url.startsWith('view-source')
     );
 }
 
-export async function readSyncStorage<T extends {[key: string]: any}>(defaults: T): Promise<T> {
-    return new Promise<T>((resolve) => {
+export async function readSyncStorage<T extends {[key: string]: any}>(defaults: T): Promise<T | null> {
+    return new Promise<T | null>((resolve) => {
         chrome.storage.sync.get(null, (sync: any) => {
             if (chrome.runtime.lastError) {
                 console.error(chrome.runtime.lastError.message);
@@ -73,7 +76,7 @@ export async function readSyncStorage<T extends {[key: string]: any}>(defaults: 
 
             sync = {
                 ...defaults,
-                ...sync
+                ...sync,
             };
 
             resolve(sync);
@@ -110,7 +113,7 @@ function prepareSyncStorage<T extends {[key: string]: any}>(values: T): {[key: s
                 (values as any)[`${key}_${i.toString(36)}`] = string.substring(i * maxLength, (i + 1) * maxLength);
             }
             (values as any)[key] = {
-                __meta_split_count: minimalKeysNeeded
+                __meta_split_count: minimalKeysNeeded,
             };
         }
     }
@@ -118,7 +121,7 @@ function prepareSyncStorage<T extends {[key: string]: any}>(values: T): {[key: s
 }
 
 export async function writeSyncStorage<T extends {[key: string]: any}>(values: T): Promise<void> {
-    return new Promise<void>(async (resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
         const packaged = prepareSyncStorage(values);
         chrome.storage.sync.set(packaged, () => {
             if (chrome.runtime.lastError) {
@@ -131,14 +134,30 @@ export async function writeSyncStorage<T extends {[key: string]: any}>(values: T
 }
 
 export async function writeLocalStorage<T extends {[key: string]: any}>(values: T): Promise<void> {
-    return new Promise<void>(async (resolve) => {
+    return new Promise<void>((resolve) => {
         chrome.storage.local.set(values, () => {
             resolve();
         });
     });
 }
 
-export async function getCommands() {
+export async function removeSyncStorage(keys: string[]): Promise<void> {
+    return new Promise<void>((resolve) => {
+        chrome.storage.sync.remove(keys, () => {
+            resolve();
+        });
+    });
+}
+
+export async function removeLocalStorage(keys: string[]): Promise<void> {
+    return new Promise<void>((resolve) => {
+        chrome.storage.local.remove(keys, () => {
+            resolve();
+        });
+    });
+}
+
+export async function getCommands(): Promise<chrome.commands.Command[]> {
     return new Promise<chrome.commands.Command[]>((resolve) => {
         if (!chrome.commands) {
             resolve([]);
@@ -154,8 +173,16 @@ export async function getCommands() {
     });
 }
 
-export function setShortcut(command: string, shortcut: string) {
-    if (typeof browser !== 'undefined' && browser.commands && browser.commands.update) {
-        browser.commands.update({name: command, shortcut});
-    }
+export function keepListeningToEvents(): () => void {
+    let intervalId = 0;
+    const keepHopeAlive = () => {
+        intervalId = setInterval(chrome.runtime.getPlatformInfo, getDuration({seconds: 10}));
+    };
+    chrome.runtime.onStartup.addListener(keepHopeAlive);
+    keepHopeAlive();
+    const stopListening = () => {
+        clearInterval(intervalId);
+        chrome.runtime.onStartup.removeListener(keepHopeAlive);
+    };
+    return stopListening;
 }

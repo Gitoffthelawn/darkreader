@@ -1,7 +1,7 @@
-import '../polyfills';
+import '../support/polyfills';
 import {DEFAULT_THEME} from '../../../src/defaults';
 import {createOrUpdateDynamicTheme, removeDynamicTheme} from '../../../src/inject/dynamic-theme';
-import {multiline, timeout} from '../../test-utils';
+import {multiline, timeout} from '../support/test-utils';
 
 const theme = {
     ...DEFAULT_THEME,
@@ -42,7 +42,7 @@ describe('MEDIA QUERIES', () => {
 
     it('should style lazyloaded media', async () => {
         container.innerHTML = multiline(
-            '<style class="testcase-style" media="print" onload="this.media=`screen`">',
+            '<style class="testcase-style" media="print">',
             '    h1 { background: green; }',
             '    h1 strong { color: orange; }',
             '</style>',
@@ -51,7 +51,9 @@ describe('MEDIA QUERIES', () => {
 
         createOrUpdateDynamicTheme(theme, null, false);
 
+        (document.querySelector('.testcase-style') as HTMLStyleElement).media = 'screen';
         await timeout(0);
+        expect((document.querySelector('.testcase-style') as HTMLStyleElement).media).toBe('screen');
         expect(getComputedStyle(document.querySelector('h1')).backgroundColor).toBe('rgb(0, 102, 0)');
         expect(getComputedStyle(document.querySelector('h1 strong')).color).toBe('rgb(255, 174, 26)');
         expect(document.querySelector('.testcase-style').nextElementSibling.classList.contains('darkreader--sync')).toBe(true);

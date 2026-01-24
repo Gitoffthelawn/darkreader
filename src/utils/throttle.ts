@@ -1,6 +1,6 @@
-export function throttle<T extends(...args: any[]) => any>(callback: T) {
+export function throttle<T extends(...args: any[]) => any>(callback: T): T & {cancel: () => void} {
     let pending = false;
-    let frameId: number = null;
+    let frameId: number | null = null;
     let lastArgs: any[];
 
     const throttled: T = ((...args: any[]) => {
@@ -20,7 +20,8 @@ export function throttle<T extends(...args: any[]) => any>(callback: T) {
     }) as any;
 
     const cancel = () => {
-        cancelAnimationFrame(frameId);
+        // TODO: resolve cast once types are updated
+        cancelAnimationFrame(frameId!);
         pending = false;
         frameId = null;
     };
@@ -30,16 +31,26 @@ export function throttle<T extends(...args: any[]) => any>(callback: T) {
 
 type Task = () => void;
 
-export function createAsyncTasksQueue() {
+declare const __TEST__: boolean;
+
+interface AsyncTaskQueue {
+    add: (task: Task) => void;
+    cancel: () => void;
+}
+
+export function createAsyncTasksQueue(): AsyncTaskQueue {
     const tasks: Task[] = [];
-    let frameId: number = null;
+    let frameId: number | null = null;
 
     function runTasks() {
-        let task: Task;
+        let task: Task | undefined;
         while ((task = tasks.shift())) {
             task();
         }
         frameId = null;
+        if (__TEST__) {
+            document.dispatchEvent(new CustomEvent('__darkreader__test__asyncQueueComplete'));
+        }
     }
 
     function add(task: Task) {
@@ -51,9 +62,23 @@ export function createAsyncTasksQueue() {
 
     function cancel() {
         tasks.splice(0);
-        cancelAnimationFrame(frameId);
+        // TODO: resolve cast once types are updated
+        cancelAnimationFrame(frameId!);
         frameId = null;
     }
 
     return {add, cancel};
+}
+
+const delayTokens = new Set<symbol>;
+
+export function requestAnimationFrameOnce(token: symbol, callback: () => void): void {
+    if (delayTokens.has(token)) {
+        return;
+    }
+    delayTokens.add(token);
+    requestAnimationFrame(() => {
+        delayTokens.delete(token);
+        callback();
+    });
 }

@@ -1,10 +1,14 @@
-import {formatSitesFixesConfig} from './utils/format';
-import {parseSitesFixesConfig, getSitesFixesFor} from './utils/parse';
-import type {SitePropsIndex} from './utils/parse';
-import {parseArray, formatArray} from '../utils/text';
-import {compareURLPatterns, isURLInList} from '../utils/url';
 import type {DynamicThemeFix} from '../definitions';
-import {isChromium} from '../utils/platform';
+import {formatCSS} from '../utils/css-text/format-css';
+import {parseArray, formatArray} from '../utils/text';
+import {compareURLPatterns} from '../utils/url';
+
+import {formatSitesFixesConfig} from './utils/format';
+import {parseSitesFixesConfig, getSitesFixesFor, getDomain} from './utils/parse';
+import type {SitePropsIndex} from './utils/parse';
+
+declare const __CHROMIUM_MV2__: boolean;
+declare const __CHROMIUM_MV3__: boolean;
 
 const dynamicThemeFixesCommands: { [key: string]: keyof DynamicThemeFix } = {
     'INVERT': 'invert',
@@ -13,7 +17,7 @@ const dynamicThemeFixesCommands: { [key: string]: keyof DynamicThemeFix } = {
     'IGNORE IMAGE ANALYSIS': 'ignoreImageAnalysis',
 };
 
-export function parseDynamicThemeFixes(text: string) {
+export function parseDynamicThemeFixes(text: string): DynamicThemeFix[] {
     return parseSitesFixesConfig<DynamicThemeFix>(text, {
         commands: Object.keys(dynamicThemeFixesCommands),
         getCommandPropName: (command) => dynamicThemeFixesCommands[command],
@@ -26,15 +30,15 @@ export function parseDynamicThemeFixes(text: string) {
     });
 }
 
-export function formatDynamicThemeFixes(dynamicThemeFixes: DynamicThemeFix[]) {
+export function formatDynamicThemeFixes(dynamicThemeFixes: DynamicThemeFix[]): string {
     const fixes = dynamicThemeFixes.slice().sort((a, b) => compareURLPatterns(a.url[0], b.url[0]));
 
     return formatSitesFixesConfig(fixes, {
         props: Object.values(dynamicThemeFixesCommands),
-        getPropCommandName: (prop) => Object.entries(dynamicThemeFixesCommands).find(([, p]) => p === prop)[0],
+        getPropCommandName: (prop) => Object.entries(dynamicThemeFixesCommands).find(([, p]) => p === prop)![0],
         formatPropValue: (prop, value) => {
             if (prop === 'css') {
-                return (value as string).trim().replace(/\n+/g, '\n');
+                return formatCSS(value as string);
             }
             return formatArray(value as string[]).trim();
         },
@@ -47,8 +51,8 @@ export function formatDynamicThemeFixes(dynamicThemeFixes: DynamicThemeFix[]) {
     });
 }
 
-export function getDynamicThemeFixesFor(url: string, frameURL: string, text: string, index: SitePropsIndex<DynamicThemeFix>, enabledForPDF: boolean) {
-    const fixes = getSitesFixesFor(frameURL || url, text, index, {
+export function getDynamicThemeFixesFor(url: string, isTopFrame: boolean, text: string, index: SitePropsIndex<DynamicThemeFix>, enabledForPDF: boolean): DynamicThemeFix[] | null {
+    const fixes = getSitesFixesFor(url, text, index, {
         commands: Object.keys(dynamicThemeFixesCommands),
         getCommandPropName: (command) => dynamicThemeFixesCommands[command],
         parseCommandValue: (command, value) => {
@@ -62,44 +66,31 @@ export function getDynamicThemeFixesFor(url: string, frameURL: string, text: str
     if (fixes.length === 0 || fixes[0].url[0] !== '*') {
         return null;
     }
-    const genericFix = fixes[0];
 
-    const common = {
-        url: genericFix.url,
-        invert: genericFix.invert || [],
-        css: genericFix.css || '',
-        ignoreInlineStyle: genericFix.ignoreInlineStyle || [],
-        ignoreImageAnalysis: genericFix.ignoreImageAnalysis || [],
-    };
     if (enabledForPDF) {
-        if (isChromium) {
-            common.css += '\nembed[type="application/pdf"][src="about:blank"] { filter: invert(100%) contrast(90%); }';
-        } else {
-            common.css += '\nembed[type="application/pdf"] { filter: invert(100%) contrast(90%); }';
+        // Copy part of fixes which will be mutated
+        const commonFix = {...fixes[0]};
+        const pdfFixes: DynamicThemeFix[] = [
+            commonFix,
+            ...fixes.slice(1),
+        ];
+
+        const inversionFix = __CHROMIUM_MV2__ || __CHROMIUM_MV3__ ?
+            '\nembed[type="application/pdf"][src="about:blank"] { filter: invert(100%) contrast(90%); }' :
+            '\nembed[type="application/pdf"] { filter: invert(100%) contrast(90%); }';
+        if (!commonFix.css.endsWith(inversionFix)) {
+            commonFix.css += inversionFix;
         }
-    }
-    const sortedBySpecificity = fixes
-        .slice(1)
-        .map((theme) => {
-            return {
-                specificity: isURLInList(frameURL || url, theme.url) ? theme.url[0].length : 0,
-                theme
-            };
-        })
-        .filter(({specificity}) => specificity > 0)
-        .sort((a, b) => b.specificity - a.specificity);
 
-    if (sortedBySpecificity.length === 0) {
-        return common;
+        if (['drive.google.com', 'mail.google.com'].includes(getDomain(url))) {
+            const nestedInversionFix = 'div[role="dialog"] div[role="document"]';
+            if (commonFix.invert.at(-1) !== nestedInversionFix) {
+                commonFix.invert.push(nestedInversionFix);
+            }
+        }
+
+        return pdfFixes;
     }
 
-    const match = sortedBySpecificity[0].theme;
-
-    return {
-        url: match.url,
-        invert: common.invert.concat(match.invert || []),
-        css: [common.css, match.css].filter((s) => s).join('\n'),
-        ignoreInlineStyle: common.ignoreInlineStyle.concat(match.ignoreInlineStyle || []),
-        ignoreImageAnalysis: common.ignoreImageAnalysis.concat(match.ignoreImageAnalysis || []),
-    };
+    return fixes;
 }

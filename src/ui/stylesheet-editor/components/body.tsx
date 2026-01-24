@@ -1,17 +1,14 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
-import {Button, MessageBox, Overlay} from '../../controls';
+
+import type {ExtWrapper} from '../../../definitions';
 import {getURLHostOrProtocol, isURLInList} from '../../../utils/url';
-import type {ExtWrapper, TabInfo} from '../../../definitions';
+import {Button, MessageBox, Overlay} from '../../controls';
 
-interface BodyProps extends ExtWrapper {
-    tab: TabInfo;
-}
-
-export default function Body({data, tab, actions}: BodyProps) {
+export default function Body({data, actions}: ExtWrapper) {
     const context = getContext();
-    const host = getURLHostOrProtocol(tab.url);
-    const custom = data.settings.customThemes.find(({url}) => isURLInList(tab.url, url));
+    const host = getURLHostOrProtocol(data.activeTab.url);
+    const custom = data.settings.customThemes.find(({url}) => isURLInList(data.activeTab.url, url));
 
     let textNode: HTMLTextAreaElement;
 
@@ -73,9 +70,9 @@ export default function Body({data, tab, actions}: BodyProps) {
                 <img id="logo" src="../assets/images/darkreader-type.svg" alt="Dark Reader" />
                 <h1 id="title">CSS Editor</h1>
             </header>
-            <h3 id="sub-title">{custom ? host : 'All websites'}</h3>
+            <h3 class="sub-title">{custom ? host : 'All websites'}</h3>
             <textarea
-                id="editor"
+                class="editor"
                 native
                 placeholder={placeholderText}
                 onrender={onTextRender}
@@ -84,7 +81,7 @@ export default function Body({data, tab, actions}: BodyProps) {
                 autocomplete="off"
                 autocapitalize="off"
             />
-            <div id="buttons">
+            <div class="buttons">
                 <Button onclick={showDialog}>
                     Reset changes
                     {dialog}
