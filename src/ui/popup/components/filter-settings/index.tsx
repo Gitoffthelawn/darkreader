@@ -1,17 +1,18 @@
 import {m} from 'malevic';
-import {UpDown} from '../../../controls';
-import CustomSettingsToggle from '../custom-settings-toggle';
-import ModeToggle from './mode-toggle';
+
+import type {ExtWrapper, Theme} from '../../../../definitions';
 import {getLocalMessage} from '../../../../utils/locales';
 import {isURLInList} from '../../../../utils/url';
-import type {ExtWrapper, TabInfo, FilterConfig} from '../../../../definitions';
+import {UpDown} from '../../../controls';
+import CustomSettingsToggle from '../custom-settings-toggle';
 
-export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: TabInfo}) {
+import ModeToggle from './mode-toggle';
 
-    const custom = data.settings.customThemes.find(({url}) => isURLInList(tab.url, url));
-    const filterConfig = custom ? custom.theme : data.settings.theme;
+export default function FilterSettings({data, actions}: ExtWrapper, ...children: Malevic.Child[]) {
+    const custom = data.settings.customThemes.find(({url}) => isURLInList(data.activeTab.url, url));
+    const theme = custom ? custom.theme : data.settings.theme;
 
-    function setConfig(config: Partial<FilterConfig>) {
+    function setConfig(config: Partial<Theme>) {
         if (custom) {
             custom.theme = {...custom.theme, ...config};
             actions.changeSettings({customThemes: data.settings.customThemes});
@@ -22,7 +23,7 @@ export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: 
 
     const brightness = (
         <UpDown
-            value={filterConfig.brightness}
+            value={theme.brightness}
             min={50}
             max={150}
             step={5}
@@ -34,7 +35,7 @@ export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: 
 
     const contrast = (
         <UpDown
-            value={filterConfig.contrast}
+            value={theme.contrast}
             min={50}
             max={150}
             step={5}
@@ -46,7 +47,7 @@ export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: 
 
     const grayscale = (
         <UpDown
-            value={filterConfig.grayscale}
+            value={theme.grayscale}
             min={0}
             max={100}
             step={5}
@@ -58,7 +59,7 @@ export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: 
 
     const sepia = (
         <UpDown
-            value={filterConfig.sepia}
+            value={theme.sepia}
             min={0}
             max={100}
             step={5}
@@ -70,12 +71,15 @@ export default function FilterSettings({data, actions, tab}: ExtWrapper & {tab: 
 
     return (
         <section class="filter-settings">
-            <ModeToggle mode={filterConfig.mode} onChange={(mode) => setConfig({mode})} />
+            <ModeToggle mode={theme.mode} onChange={(mode) => setConfig({mode})} />
             {brightness}
             {contrast}
             {sepia}
             {grayscale}
-            <CustomSettingsToggle data={data} tab={tab} actions={actions} />
+            <CustomSettingsToggle data={data} actions={actions} />
+            <div class="filter-settings__content">
+                {...children}
+            </div>
         </section>
     );
 }

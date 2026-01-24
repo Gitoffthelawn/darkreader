@@ -1,5 +1,7 @@
 import {m} from 'malevic';
+
 import Button from '../button';
+
 import Tab from './tab';
 
 interface TabPanelProps {
@@ -14,7 +16,6 @@ interface TabPanelProps {
 }
 
 export default function TabPanel(props: TabPanelProps) {
-
     const tabsNames = Object.keys(props.tabs);
 
     function isActiveTab(name: string, index: number) {
@@ -27,7 +28,7 @@ export default function TabPanel(props: TabPanelProps) {
     const buttons = tabsNames.map((name, i) => {
         const btnCls = {
             'tab-panel__button': true,
-            'tab-panel__button--active': isActiveTab(name, i)
+            'tab-panel__button--active': isActiveTab(name, i),
         };
         return (
             <Button

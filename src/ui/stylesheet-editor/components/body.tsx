@@ -1,16 +1,14 @@
 import {m} from 'malevic';
-import {Button} from '../../controls';
+import {getContext} from 'malevic/dom';
+
+import type {ExtWrapper} from '../../../definitions';
 import {getURLHostOrProtocol, isURLInList} from '../../../utils/url';
-import type {ExtWrapper, TabInfo} from '../../../definitions';
+import {Button, MessageBox, Overlay} from '../../controls';
 
-interface BodyProps extends ExtWrapper {
-    tab: TabInfo;
-}
-
-export default function Body({data, tab, actions}: BodyProps) {
-
-    const host = getURLHostOrProtocol(tab.url);
-    const custom = data.settings.customThemes.find(({url}) => isURLInList(tab.url, url));
+export default function Body({data, actions}: ExtWrapper) {
+    const context = getContext();
+    const host = getURLHostOrProtocol(data.activeTab.url);
+    const custom = data.settings.customThemes.find(({url}) => isURLInList(data.activeTab.url, url));
 
     let textNode: HTMLTextAreaElement;
 
@@ -21,7 +19,7 @@ export default function Body({data, tab, actions}: BodyProps) {
         '}',
     ].join('\n');
 
-    function onTextRender(node) {
+    function onTextRender(node: HTMLTextAreaElement) {
         textNode = node;
         textNode.value = (custom ? custom.theme.stylesheet : data.settings.theme.stylesheet) || '';
         if (document.activeElement !== textNode) {
@@ -38,7 +36,26 @@ export default function Body({data, tab, actions}: BodyProps) {
         }
     }
 
+    function showDialog() {
+        context.store.isDialogVisible = true;
+        context.refresh();
+    }
+
+    function hideDialog() {
+        context.store.isDialogVisible = false;
+        context.refresh();
+    }
+
+    const dialog = context && context.store.isDialogVisible ? (
+        <MessageBox
+            caption="Are you sure you want to remove current changes? You cannot restore them later."
+            onOK={reset}
+            onCancel={hideDialog}
+        />
+    ) : null;
+
     function reset() {
+        context.store.isDialogVisible = false;
         applyStyleSheet('');
     }
 
@@ -53,9 +70,9 @@ export default function Body({data, tab, actions}: BodyProps) {
                 <img id="logo" src="../assets/images/darkreader-type.svg" alt="Dark Reader" />
                 <h1 id="title">CSS Editor</h1>
             </header>
-            <h3 id="sub-title">{custom ? host : 'All websites'}</h3>
+            <h3 class="sub-title">{custom ? host : 'All websites'}</h3>
             <textarea
-                id="editor"
+                class="editor"
                 native
                 placeholder={placeholderText}
                 onrender={onTextRender}
@@ -64,10 +81,14 @@ export default function Body({data, tab, actions}: BodyProps) {
                 autocomplete="off"
                 autocapitalize="off"
             />
-            <div id="buttons">
-                <Button onclick={reset}>Reset</Button>
+            <div class="buttons">
+                <Button onclick={showDialog}>
+                    Reset changes
+                    {dialog}
+                </Button>
                 <Button onclick={apply}>Apply</Button>
             </div>
+            <Overlay />
         </body>
     );
 }

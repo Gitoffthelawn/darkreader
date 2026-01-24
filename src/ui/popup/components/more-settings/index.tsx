@@ -1,20 +1,26 @@
 import {m} from 'malevic';
+
+import type {ExtWrapper, Theme} from '../../../../definitions';
+import {getLocalMessage} from '../../../../utils/locales';
+import {isFirefox} from '../../../../utils/platform';
+import {isURLInList} from '../../../../utils/url';
+import {Button, Toggle} from '../../../controls';
+import {SettingsIcon} from '../../../icons';
+import {openExtensionPage} from '../../../utils';
 import CustomSettingsToggle from '../custom-settings-toggle';
 import EngineSwitch from '../engine-switch';
 import FontSettings from '../font-settings';
-import {Toggle} from '../../../controls';
-import {isURLInList} from '../../../../utils/url';
-import {compileMarkdown} from '../../utils/markdown';
-import {getLocalMessage} from '../../../../utils/locales';
-import type {ExtWrapper, FilterConfig, TabInfo} from '../../../../definitions';
-import {isFirefox} from '../../../../utils/platform';
 
-export default function MoreSettings({data, actions, tab}: ExtWrapper & {tab: TabInfo}) {
+async function openSettings() {
+    await openExtensionPage('options');
+}
 
+export default function MoreSettings({data, actions, fonts}: ExtWrapper & {fonts: string[]}) {
+    const tab = data.activeTab;
     const custom = data.settings.customThemes.find(({url}) => isURLInList(tab.url, url));
-    const filterConfig = custom ? custom.theme : data.settings.theme;
+    const theme = custom ? custom.theme : data.settings.theme;
 
-    function setConfig(config: Partial<FilterConfig>) {
+    function setConfig(config: Partial<Theme>) {
         if (custom) {
             custom.theme = {...custom.theme, ...config};
             actions.changeSettings({customThemes: data.settings.customThemes});
@@ -26,16 +32,13 @@ export default function MoreSettings({data, actions, tab}: ExtWrapper & {tab: Ta
     return (
         <section class="more-settings">
             <div class="more-settings__section">
-                <FontSettings config={filterConfig} fonts={data.fonts} onChange={setConfig} />
+                <FontSettings config={theme} fonts={fonts} onChange={setConfig} />
             </div>
             <div class="more-settings__section">
-                {isFirefox ? null : <p class="more-settings__description">
-                    {compileMarkdown(getLocalMessage('try_experimental_theme_engines'))}
-                </p>}
-                <EngineSwitch engine={filterConfig.engine} onChange={(engine) => setConfig({engine})} />
+                <EngineSwitch engine={theme.engine} onChange={(engine) => setConfig({engine})} />
             </div>
             <div class="more-settings__section">
-                <CustomSettingsToggle data={data} tab={tab} actions={actions} />
+                <CustomSettingsToggle data={data} actions={actions} />
                 {tab.isProtected ? (
                     <p class="more-settings__description more-settings__description--warning">
                         {getLocalMessage('page_protected').replace(/\n/g, ' ')}
@@ -63,7 +66,18 @@ export default function MoreSettings({data, actions, tab}: ExtWrapper & {tab: Ta
                     </p>
                 </div>
             ) : null}
+            <div class="more-settings__section">
+                <Button onclick={openSettings} class="more-settings__settings-button">
+                    <span class="more-settings__settings-button__wrapper">
+                        <span class="more-settings__settings-button__icon">
+                            <SettingsIcon />
+                        </span>
+                        <span class="more-settings__settings-button__text">
+                            {getLocalMessage('all_settings')}
+                        </span>
+                    </span>
+                </Button>
+            </div>
         </section>
     );
 }
-

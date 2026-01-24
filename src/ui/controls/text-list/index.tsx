@@ -1,5 +1,6 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
+
 import TextBox from '../textbox';
 import VirtualScroll from '../virtual-scroll';
 
@@ -15,11 +16,11 @@ export default function TextList(props: TextListProps) {
     const context = getContext();
     context.store.indices = context.store.indices || new WeakMap();
 
-    function onTextChange(e) {
+    function onTextChange(e: {target: HTMLInputElement}) {
         const index = context.store.indices.get(e.target);
         const values = props.values.slice();
         const value = e.target.value.trim();
-        if (values.indexOf(value) >= 0) {
+        if (values.includes(value)) {
             return;
         }
 
@@ -49,7 +50,7 @@ export default function TextList(props: TextListProps) {
     let shouldFocus = false;
 
     const node = context.node;
-    const prevProps = context.prev ? context.prev.props as TextListProps : null;
+    const prevProps: TextListProps | null = context.prev ? context.prev.props : null;
     if (node && props.isFocused && (
         !prevProps ||
         !prevProps.isFocused ||

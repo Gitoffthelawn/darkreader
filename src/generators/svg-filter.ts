@@ -1,9 +1,11 @@
-import {createFilterMatrix, Matrix} from './utils/matrix';
-import {cssFilterStyleSheetTemplate} from './css-filter';
-import type {FilterConfig, InversionFix} from '../definitions';
+import type {Theme, InversionFix} from '../definitions';
 import {isFirefox} from '../utils/platform';
 
-export function createSVGFilterStylesheet(config: FilterConfig, url: string, frameURL: string, inversionFixes: InversionFix[]) {
+import {cssFilterStyleSheetTemplate} from './css-filter';
+import {createFilterMatrix, Matrix} from './utils/matrix';
+import type {SitePropsIndex} from './utils/parse';
+
+export function createSVGFilterStylesheet(config: Theme, url: string, isTopFrame: boolean, fixes: string, index: SitePropsIndex<InversionFix>): string {
     let filterValue: string;
     let reverseFilterValue: string;
     if (isFirefox) {
@@ -14,10 +16,11 @@ export function createSVGFilterStylesheet(config: FilterConfig, url: string, fra
         filterValue = 'url(#dark-reader-filter)';
         reverseFilterValue = 'url(#dark-reader-reverse-filter)';
     }
-    return cssFilterStyleSheetTemplate(filterValue, reverseFilterValue, config, url, frameURL, inversionFixes);
+    const filterRoot = isFirefox ? 'body' : 'html';
+    return cssFilterStyleSheetTemplate(filterRoot, filterValue, reverseFilterValue, config, url, isTopFrame, fixes, index);
 }
 
-function getEmbeddedSVGFilterValue(matrixValue: string) {
+function getEmbeddedSVGFilterValue(matrixValue: string): string {
     const id = 'dark-reader-filter';
     const svg = [
         '<svg xmlns="http://www.w3.org/2000/svg">',
@@ -29,14 +32,14 @@ function getEmbeddedSVGFilterValue(matrixValue: string) {
     return `url(data:image/svg+xml;base64,${btoa(svg)}#${id})`;
 }
 
-function toSVGMatrix(matrix: number[][]) {
+function toSVGMatrix(matrix: number[][]): string {
     return matrix.slice(0, 4).map((m) => m.map((m) => m.toFixed(3)).join(' ')).join(' ');
 }
 
-export function getSVGFilterMatrixValue(config: FilterConfig) {
+export function getSVGFilterMatrixValue(config: Theme): string {
     return toSVGMatrix(createFilterMatrix(config));
 }
 
-export function getSVGReverseFilterMatrixValue() {
+export function getSVGReverseFilterMatrixValue(): string {
     return toSVGMatrix(Matrix.invertNHue());
 }

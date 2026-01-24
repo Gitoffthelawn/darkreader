@@ -1,10 +1,12 @@
+import type {Theme, StaticTheme} from '../definitions';
+import {parseArray, formatArray} from '../utils/text';
+import {compareURLPatterns, isURLInList} from '../utils/url';
+
 import {createTextStyle} from './text-style';
 import {formatSitesFixesConfig} from './utils/format';
 import {applyColorMatrix, createFilterMatrix} from './utils/matrix';
-import {parseSitesFixesConfig} from './utils/parse';
-import {parseArray, formatArray} from '../utils/text';
-import {compareURLPatterns, isURLInList} from '../utils/url';
-import type {FilterConfig, StaticTheme} from '../definitions';
+import {parseSitesFixesConfig, getSitesFixesFor} from './utils/parse';
+import type {SitePropsIndex} from './utils/parse';
 
 interface ThemeColors {
     [prop: string]: number[];
@@ -46,37 +48,41 @@ const lightTheme: ThemeColors = {
     fadeText: [0, 0, 0, 0.5],
 };
 
-function rgb([r, g, b, a]: number[]) {
+function rgb([r, g, b, a]: number[]): string {
     if (typeof a === 'number') {
         return `rgba(${r}, ${g}, ${b}, ${a})`;
     }
     return `rgb(${r}, ${g}, ${b})`;
 }
 
-function mix(color1: number[], color2: number[], t: number) {
+function mix(color1: number[], color2: number[], t: number): number[] {
     return color1.map((c, i) => Math.round(c * (1 - t) + color2[i] * t));
 }
 
-export default function createStaticStylesheet(config: FilterConfig, url: string, frameURL: string, staticThemes: StaticTheme[]) {
+export default function createStaticStylesheet(config: Theme, url: string, isTopFrame: boolean, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>): string {
     const srcTheme = config.mode === 1 ? darkTheme : lightTheme;
     const theme = Object.entries(srcTheme).reduce((t, [prop, color]) => {
-        t[prop] = applyColorMatrix(color, createFilterMatrix({...config, mode: 0}));
+        const [r, g, b, a] = color;
+        t[prop] = applyColorMatrix([r, g, b], createFilterMatrix({...config, mode: 0}));
+        if (a !== undefined) {
+            t[prop].push(a);
+        }
         return t;
     }, {} as ThemeColors);
 
-    const commonTheme = getCommonTheme(staticThemes);
-    const siteTheme = getThemeFor(frameURL || url, staticThemes);
+    const commonTheme = getCommonTheme(staticThemes, staticThemesIndex);
+    const siteTheme = getThemeFor(url, staticThemes, staticThemesIndex);
 
     const lines: string[] = [];
 
     if (!siteTheme || !siteTheme.noCommon) {
         lines.push('/* Common theme */');
-        lines.push(...ruleGenerators.map((gen) => gen(commonTheme, theme)));
+        lines.push(...ruleGenerators.map((gen) => gen(commonTheme, theme)!));
     }
 
     if (siteTheme) {
         lines.push(`/* Theme for ${siteTheme.url.join(' ')} */`);
-        lines.push(...ruleGenerators.map((gen) => gen(siteTheme, theme)));
+        lines.push(...ruleGenerators.map((gen) => gen(siteTheme, theme)!));
     }
 
     if (config.useFont || config.textStroke > 0) {
@@ -89,7 +95,7 @@ export default function createStaticStylesheet(config: FilterConfig, url: string
         .join('\n');
 }
 
-function createRuleGen(getSelectors: (siteTheme: StaticTheme) => string[], generateDeclarations: (theme: ThemeColors) => string[], modifySelector: ((s: string) => string) = (s) => s) {
+function createRuleGen(getSelectors: (siteTheme: StaticTheme) => string[] | undefined, generateDeclarations: (theme: ThemeColors) => string[], modifySelector: ((s: string) => string) = (s) => s) {
     return (siteTheme: StaticTheme, themeColors: ThemeColors) => {
         const selectors = getSelectors(siteTheme);
         if (selectors == null || selectors.length === 0) {
@@ -172,102 +178,102 @@ const ruleGenerators = [
     createRuleGen((t) => t.invert, () => ['filter: invert(100%) hue-rotate(180deg)']),
 ];
 
-const staticThemeCommands = [
-    'NO COMMON',
+const staticThemeCommands: { [key: string]: keyof StaticTheme } = {
+    'NO COMMON': 'noCommon',
 
-    'NEUTRAL BG',
-    'NEUTRAL BG ACTIVE',
-    'NEUTRAL TEXT',
-    'NEUTRAL TEXT ACTIVE',
-    'NEUTRAL BORDER',
+    'NEUTRAL BG': 'neutralBg',
+    'NEUTRAL BG ACTIVE': 'neutralBgActive',
+    'NEUTRAL TEXT': 'neutralText',
+    'NEUTRAL TEXT ACTIVE': 'neutralTextActive',
+    'NEUTRAL BORDER': 'neutralBorder',
 
-    'RED BG',
-    'RED BG ACTIVE',
-    'RED TEXT',
-    'RED TEXT ACTIVE',
-    'RED BORDER',
+    'RED BG': 'redBg',
+    'RED BG ACTIVE': 'redBgActive',
+    'RED TEXT': 'redText',
+    'RED TEXT ACTIVE': 'redTextActive',
+    'RED BORDER': 'redBorder',
 
-    'GREEN BG',
-    'GREEN BG ACTIVE',
-    'GREEN TEXT',
-    'GREEN TEXT ACTIVE',
-    'GREEN BORDER',
+    'GREEN BG': 'greenBg',
+    'GREEN BG ACTIVE': 'greenBgActive',
+    'GREEN TEXT': 'greenText',
+    'GREEN TEXT ACTIVE': 'greenTextActive',
+    'GREEN BORDER': 'greenBorder',
 
-    'BLUE BG',
-    'BLUE BG ACTIVE',
-    'BLUE TEXT',
-    'BLUE TEXT ACTIVE',
-    'BLUE BORDER',
+    'BLUE BG': 'blueBg',
+    'BLUE BG ACTIVE': 'blueBgActive',
+    'BLUE TEXT': 'blueText',
+    'BLUE TEXT ACTIVE': 'blueTextActive',
+    'BLUE BORDER': 'blueBorder',
 
-    'FADE BG',
-    'FADE TEXT',
-    'TRANSPARENT BG',
+    'FADE BG': 'fadeBg',
+    'FADE TEXT': 'fadeText',
+    'TRANSPARENT BG': 'transparentBg',
 
-    'NO IMAGE',
-    'INVERT',
-];
+    'NO IMAGE': 'noImage',
+    'INVERT': 'invert',
+};
 
-function upperCaseToCamelCase(text: string) {
-    return text
-        .split(' ')
-        .map((word, i) => {
-            return (i === 0
-                ? word.toLowerCase()
-                : (word.charAt(0).toUpperCase() + word.substr(1).toLowerCase())
-            );
-        })
-        .join('');
-}
-
-export function parseStaticThemes($themes: string) {
+export function parseStaticThemes($themes: string): StaticTheme[] {
     return parseSitesFixesConfig<StaticTheme>($themes, {
-        commands: staticThemeCommands,
-        getCommandPropName: upperCaseToCamelCase,
+        commands: Object.keys(staticThemeCommands),
+        getCommandPropName: (command) => staticThemeCommands[command],
         parseCommandValue: (command, value) => {
             if (command === 'NO COMMON') {
                 return true;
             }
             return parseArray(value);
-        }
+        },
     });
 }
 
-function camelCaseToUpperCase(text: string) {
+function camelCaseToUpperCase(text: string): string {
     return text.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 }
 
-export function formatStaticThemes(staticThemes: StaticTheme[]) {
+export function formatStaticThemes(staticThemes: StaticTheme[]): string {
     const themes = staticThemes.slice().sort((a, b) => compareURLPatterns(a.url[0], b.url[0]));
 
     return formatSitesFixesConfig(themes, {
-        props: staticThemeCommands.map(upperCaseToCamelCase),
+        props: Object.values(staticThemeCommands),
         getPropCommandName: camelCaseToUpperCase,
         formatPropValue: (prop, value) => {
             if (prop === 'noCommon') {
                 return '';
             }
-            return formatArray(value).trim();
+            return formatArray(value as string[]).trim();
         },
         shouldIgnoreProp: (prop, value) => {
             if (prop === 'noCommon') {
                 return !value;
             }
             return !(Array.isArray(value) && value.length > 0);
-        }
+        },
     });
 }
 
-function getCommonTheme(themes: StaticTheme[]) {
-    return themes[0];
+function getCommonTheme(staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>): StaticTheme {
+    const length = parseInt(staticThemesIndex.offsets.substring(4, 4 + 3), 36);
+    const staticThemeText = staticThemes.substring(0, length);
+    return parseStaticThemes(staticThemeText)[0];
 }
 
-function getThemeFor(url: string, themes: StaticTheme[]) {
+function getThemeFor(url: string, staticThemes: string, staticThemesIndex: SitePropsIndex<StaticTheme>): Readonly<StaticTheme> | null {
+    const themes = getSitesFixesFor<StaticTheme>(url, staticThemes, staticThemesIndex, {
+        commands: Object.keys(staticThemeCommands),
+        getCommandPropName: (command) => staticThemeCommands[command],
+        parseCommandValue: (command, value) => {
+            if (command === 'NO COMMON') {
+                return true;
+            }
+            return parseArray(value);
+        },
+    });
     const sortedBySpecificity = themes
         .slice(1)
         .map((theme) => {
             return {
                 specificity: isURLInList(url, theme.url) ? theme.url[0].length : 0,
-                theme
+                theme,
             };
         })
         .filter(({specificity}) => specificity > 0)
