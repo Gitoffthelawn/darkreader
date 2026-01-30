@@ -356,39 +356,6 @@ export function isURLEnabled(url: string, userSettings: UserSettings, {isProtect
     return !isURLInDisabledList;
 }
 
-export function isFullyQualifiedDomain(candidate: string): boolean {
-    return /^[a-z0-9\.\-]+$/i.test(candidate) && candidate.indexOf('..') === -1;
-}
-
-export function isFullyQualifiedDomainWildcard(candidate: string): boolean {
-    if (!candidate.includes('*') || !/^[a-z0-9\.\-\*]+$/i.test(candidate)) {
-        return false;
-    }
-    const labels = candidate.split('.');
-    for (const label of labels) {
-        if (label !== '*' && !/^[a-z0-9\-]+$/i.test(label)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-export function fullyQualifiedDomainMatchesWildcard(wildcard: string, candidate: string): boolean {
-    const wildcardLabels = wildcard.toLowerCase().split('.');
-    const candidateLabels = candidate.toLowerCase().split('.');
-    if (candidateLabels.length < wildcardLabels.length) {
-        return false;
-    }
-    while (wildcardLabels.length) {
-        const wildcardLabel = wildcardLabels.pop();
-        const candidateLabel = candidateLabels.pop();
-        if (wildcardLabel !== '*' && wildcardLabel !== candidateLabel) {
-            return false;
-        }
-    }
-    return true;
-}
-
 export function isLocalFile(url: string): boolean {
     return Boolean(url) && url.startsWith('file:///');
 }
@@ -504,11 +471,19 @@ export function isURLInIndexedList(url: string, trie: URLTrie<any>) {
 }
 
 export function getURLMatchesFromIndexedList<T>(url: string, trie: URLTrie<T>, breakOnFirstMatch = false): T[] {
+    const found = new Set<T>();
     const matches: T[] = [];
+
+    const push = (data: T) => {
+        if (!found.has(data)) {
+            found.add(data);
+            matches.push(data);
+        }
+    };
 
     for (const r of trie.regexps) {
         if (r.regexp.test(url)) {
-            matches.push(r.data);
+            push(r.data);
             if (breakOnFirstMatch) {
                 return matches;
             }
@@ -522,7 +497,7 @@ export function getURLMatchesFromIndexedList<T>(url: string, trie: URLTrie<T>, b
 
     for (const p of trie.hardPatterns) {
         if (matchPreparedURLPattern(u, p.pattern)) {
-            matches.push(p.data);
+            push(p.data);
             if (breakOnFirstMatch) {
                 return matches;
             }
@@ -531,30 +506,26 @@ export function getURLMatchesFromIndexedList<T>(url: string, trie: URLTrie<T>, b
 
     const matchHost = (node: URLTrieNode, index: number) => {
         const finalHostNode = node.hostNodes.get('');
-        if (index === u.hostParts.length) {
-            if (finalHostNode) {
-                if (finalHostNode.data) {
-                    matches.push(finalHostNode.data);
-                    if (breakOnFirstMatch) {
-                        return;
-                    }
+        const noMoreHostParts = index === u.hostParts.length;
+        const value = noMoreHostParts ? '' : u.hostParts[index];
+
+        if (
+            finalHostNode && (
+                noMoreHostParts ||
+                node.key === '*' ||
+                (index === u.hostParts.length - 1 && value === 'www')
+            )
+        ) {
+            if (finalHostNode.data) {
+                push(finalHostNode.data);
+                if (breakOnFirstMatch) {
+                    return;
                 }
-                matchPath(finalHostNode, 0);
             }
-            return;
+            matchPath(finalHostNode, 0);
         }
 
-        const value = u.hostParts[index];
-        if (finalHostNode) {
-            if (node.key === '*' || (index === u.hostParts.length - 1 && value === 'www')) {
-                if (finalHostNode.data) {
-                    matches.push(finalHostNode.data);
-                    if (breakOnFirstMatch) {
-                        return;
-                    }
-                }
-                matchPath(finalHostNode, 0);
-            }
+        if (noMoreHostParts) {
             return;
         }
 
@@ -576,19 +547,16 @@ export function getURLMatchesFromIndexedList<T>(url: string, trie: URLTrie<T>, b
 
     const matchPath = (node: URLTrieNode, index: number) => {
         const finalPathNode = node.pathNodes.get('');
-        if (index === u.pathParts.length) {
-            if (finalPathNode && finalPathNode.data) {
-                matches.push(finalPathNode.data);
+        const noMorePathParts = index === u.pathParts.length;
+        const value = noMorePathParts ? '' : u.pathParts[index];
+
+        if (finalPathNode && (noMorePathParts || node.key === '*' || index === u.pathParts.length - 1)) {
+            if (finalPathNode.data) {
+                push(finalPathNode.data);
             }
-            return;
         }
 
-        if (finalPathNode) {
-            if (node.key === '*' || index === u.pathParts.length - 1) {
-                if (finalPathNode.data) {
-                    matches.push(finalPathNode.data);
-                }
-            }
+        if (noMorePathParts) {
             return;
         }
 
@@ -602,13 +570,10 @@ export function getURLMatchesFromIndexedList<T>(url: string, trie: URLTrie<T>, b
             return;
         }
 
-        const value = u.pathParts[index];
         const keyNode = nodes.get(value);
         if (keyNode) {
             matchPath(keyNode, index + 1);
         }
-
-        return null;
     };
 
     matchHost(trie, 0);
