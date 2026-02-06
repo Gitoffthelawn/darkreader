@@ -242,15 +242,15 @@ function getNumbersFromString(input: string, range: number[], units: {[unit: str
     const push = (matchEnd: number) => {
         const numEnd = unitStart > -1 ? unitStart : matchEnd;
         const $num = input.slice(numStart, numEnd);
+        let n = parseFloat($num);
         const r = range[numbers.length];
-        let u = 1;
         if (unitStart > -1) {
             const unit = input.slice(unitStart, matchEnd);
-            if (units[unit]) {
-                u = r / units[unit];
+            const u = units[unit];
+            if (u != null) {
+                n *= r / u;
             }
         }
-        let n = parseFloat($num) * u;
         if (r > 1) {
             n = Math.round(n);
         }
@@ -267,12 +267,12 @@ function getNumbersFromString(input: string, range: number[], units: {[unit: str
             if (numStart === -1) {
                 numStart = i;
             }
-        } else if (numStart > -1 && !isDelimiter) {
-            if (unitStart === -1) {
+        } else if (numStart > -1) {
+            if (isDelimiter) {
+                push(i);
+            } else if (unitStart === -1) {
                 unitStart = i;
             }
-        } else if (numStart > -1 && isDelimiter) {
-            push(i);
         }
     }
     if (numStart > -1) {
@@ -382,23 +382,52 @@ function parseHSL($hsl: string): RGBA | null {
     return hslToRGB({h, s, l, a});
 }
 
+const C_A = 'A'.charCodeAt(0);
+const C_F = 'F'.charCodeAt(0);
+const C_a = 'a'.charCodeAt(0);
+const C_f = 'f'.charCodeAt(0);
+
 function parseHex($hex: string): RGBA | null {
-    const h = $hex.substring(1);
-    switch (h.length) {
-        case 3:
-        case 4: {
-            const [r, g, b] = [0, 1, 2].map((i) => parseInt(`${h[i]}${h[i]}`, 16));
-            const a = h.length === 3 ? 1 : (parseInt(`${h[3]}${h[3]}`, 16) / 255);
-            return {r, g, b, a};
+    const length = $hex.length;
+    const digitCount = length - 1;
+    const isShort = digitCount === 3 || digitCount === 4;
+    const isLong = digitCount === 6 || digitCount === 8;
+    if (!isShort && !isLong) {
+        return null;
+    }
+
+    const hex = (i: number) => {
+        const c = $hex.charCodeAt(i);
+        if (c >= C_A && c <= C_F) {
+            return c + 10 - C_A;
         }
-        case 6:
-        case 8: {
-            const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.substring(i, i + 2), 16));
-            const a = h.length === 6 ? 1 : (parseInt(h.substring(6, 8), 16) / 255);
-            return {r, g, b, a};
+        if (c >= C_a && c <= C_f) {
+            return c + 10 - C_a;
+        }
+        return c - C_0;
+    };
+
+    let r: number;
+    let g: number;
+    let b: number;
+    let a = 1;
+    if (isShort) {
+        r = hex(1) * 17;
+        g = hex(2) * 17;
+        b = hex(3) * 17;
+        if (digitCount === 4) {
+            a = hex(4) * 17 / 255;
+        }
+    } else {
+        r = hex(1) * 16 + hex(2);
+        g = hex(3) * 16 + hex(4);
+        b = hex(5) * 16 + hex(6);
+        if (digitCount === 8) {
+            a = (hex(7) * 16 + hex(8)) / 255;
         }
     }
-    return null;
+
+    return {r, g, b, a};
 }
 
 function getColorByName($color: string): RGBA {
