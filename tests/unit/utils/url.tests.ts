@@ -1,4 +1,4 @@
-import {indexURLTemplateList, isURLInIndexedList, isURLMatched} from '../../../src/utils/url';
+import {indexURLTemplateList, isPDF, isURLInIndexedList, isURLMatched} from '../../../src/utils/url';
 
 describe('Domain utilities', () => {
     test('URL match', () => {
@@ -53,6 +53,17 @@ describe('Domain utilities', () => {
         expect(isURLMatched('https://[2001:0DB8:AC10:FE02::200E]/', '[2001:0DB8:AC10:FE01::200E]')).toEqual(false);
         expect(isURLMatched('https://[2001:0DB8:AC10:FE01::200E]:8080/', '[2001:0DB8:AC10:FE01::200E]:8080')).toEqual(true);
         expect(isURLMatched('https://[2001:0DB8:AC10:FE02::200E]:1024/', '[2001:0DB8:AC10:FE01::200E]:8080')).toEqual(false);
+    });
+
+    test('URL is PDF', () => {
+        expect(isPDF('https://www.google.com/file.pdf')).toBe(true);
+        expect(isPDF('https://www.google.com/file.pdf?id=2')).toBe(true);
+        expect(isPDF('https://www.google.com/file.pdf/resource')).toBe(false);
+        expect(isPDF('https://www.google.com/resource?file=file.pdf')).toBe(false);
+        expect(isPDF('https://www.google.com/very/good/hidden/folder/pdf#file.pdf')).toBe(false);
+        expect(isPDF('https://fi.wikipedia.org/wiki/Tiedosto:ExtIPA_chart_(2015).pdf?uselang=en')).toBe(false);
+        expect(isPDF('https://commons.wikimedia.org/wiki/File:ExtIPA_chart_(2015).pdf')).toBe(false);
+        expect(isPDF('https://upload.wikimedia.org/wikipedia/commons/5/56/ExtIPA_chart_(2015).pdf')).toBe(true);
     });
 
     test('URL list index', () => {
@@ -110,6 +121,7 @@ describe('Domain utilities', () => {
             'google.*.*/maps',
             '*.example.com',
             'office.com/*/edit',
+            'mail.google.*/mail',
         ];
         indexed = indexURLTemplateList(mixedPatterns);
         expect(isURLInIndexedList('https://apple.com/', indexed)).toEqual(true);
@@ -122,6 +134,7 @@ describe('Domain utilities', () => {
         expect(isURLInIndexedList('https://www.google.com/maps/edit', indexed)).toEqual(true);
         expect(isURLInIndexedList('https://www.google.com/mail', indexed)).toEqual(false);
         expect(isURLInIndexedList('https://mail.google.com/', indexed)).toEqual(false);
+        expect(isURLInIndexedList('https://mail.google.com/mail/u/0/', indexed)).toEqual(true);
         expect(isURLInIndexedList('https://example.com/', indexed)).toEqual(false);
         expect(isURLInIndexedList('https://www.example.com/', indexed)).toEqual(true);
         expect(isURLInIndexedList('https://test.example.com/', indexed)).toEqual(true);
