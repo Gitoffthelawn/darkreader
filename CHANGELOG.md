@@ -1,3 +1,9 @@
+# 4.9.122 (February 27, 2026)
+
+- Chrome: Fixed PDF inversion in Dynamic mode.
+- Firefox: Fixed pasting text in Google Docs.
+- Improved mask image handling.
+
 # 4.9.121 (February 10, 2026)
 
 - Fixed sites fixes indexing.
