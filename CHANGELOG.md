@@ -1,3 +1,7 @@
+# 4.9.123 (March 1, 2026)
+
+- Firefox: Disable white flash prevention in iframes (FF 148 issue in Google Docs, CKEditor and others).
+
 # 4.9.122 (February 27, 2026)
 
 - Chrome: Fixed PDF inversion in Dynamic mode.
