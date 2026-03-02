@@ -8,10 +8,7 @@ if (
     wasEnabledForHost() !== false &&
     !document.querySelector('.darkreader--fallback') &&
     !document.querySelector('.darkreader') &&
-    !(__FIREFOX_MV2__ && (
-        location.hostname === 'docs.google.com' ||
-        document.baseURI.startsWith('https://docs.google.com/')
-    ))
+    !(__FIREFOX_MV2__ && window !== top)
 ) {
     const css = [
         'html, body, body :not(iframe) {',
