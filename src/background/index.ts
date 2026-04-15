@@ -37,10 +37,6 @@ type TestMessage = {
     };
     id: number;
 } | {
-    type: 'firefox-createTab';
-    data: string;
-    id: number;
-} | {
     type: 'firefox-getColorScheme';
     id: number;
 } | {
@@ -68,7 +64,6 @@ declare const __LOG__: string | false;
 declare const __PORT__: number;
 declare const __TEST__: boolean;
 declare const __CHROMIUM_MV3__: boolean;
-declare const __FIREFOX_MV2__: boolean;
 
 if (__CHROMIUM_MV3__) {
     chrome.runtime.onInstalled.addListener(async () => {
@@ -146,11 +141,6 @@ if (__TEST__) {
     chrome.tabs.create({url: chrome.runtime.getURL('/ui/popup/index.html'), active: false});
     chrome.tabs.create({url: chrome.runtime.getURL('/ui/devtools/index.html'), active: false});
 
-    let testTabId: number | null = null;
-    if (__FIREFOX_MV2__) {
-        chrome.tabs.create({url: 'about:blank', active: true}, ({id}) => testTabId = id!);
-    }
-
     const socket = new WebSocket(`ws://localhost:8894`);
     socket.onopen = async () => {
         // Wait for extension to start
@@ -199,11 +189,6 @@ if (__TEST__) {
                 case 'setNews':
                     setNewsForTesting(message.data);
                     respond();
-                    break;
-                // TODO(anton): remove this once Firefox supports tab.eval() via WebDriver BiDi
-                case 'firefox-createTab':
-                    ASSERT('Firefox-specific function', isFirefox);
-                    chrome.tabs.update(testTabId!, {url: message.data, active: true}, () => respond());
                     break;
                 case 'firefox-getColorScheme': {
                     ASSERT('Firefox-specific function', isFirefox);
