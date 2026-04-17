@@ -279,12 +279,8 @@ export class Extension {
             markNewsAsRead: Newsmaker.markAsRead,
             markNewsAsDisplayed: Newsmaker.markAsDisplayed,
             loadConfig: ConfigManager.load,
-            applyDevDynamicThemeFixes: DevTools.applyDynamicThemeFixes,
-            resetDevDynamicThemeFixes: DevTools.resetDynamicThemeFixes,
-            applyDevInversionFixes: DevTools.applyInversionFixes,
-            resetDevInversionFixes: DevTools.resetInversionFixes,
-            applyDevStaticThemes: DevTools.applyStaticThemes,
-            resetDevStaticThemes: DevTools.resetStaticThemes,
+            applyDevFixes: DevTools.applyFixes,
+            resetDevFixes: DevTools.resetFixes,
             startActivation: Extension.startActivation,
             resetActivation: Extension.resetActivation,
             hideHighlights: UIHighlights.hideHighlights,
@@ -428,18 +424,21 @@ export class Extension {
 
     static async collectDevToolsData(): Promise<DevToolsData> {
         const [
-            dynamicFixesText,
-            filterFixesText,
+            detector,
+            dynamic,
+            filter,
             staticThemesText,
         ] = await Promise.all([
+            DevTools.getDetectorHintsText(),
             DevTools.getDynamicThemeFixesText(),
             DevTools.getInversionFixesText(),
             DevTools.getStaticThemesText(),
         ]);
         return {
-            dynamicFixesText,
-            filterFixesText,
-            staticThemesText,
+            detector,
+            dynamic,
+            filter,
+            static: staticThemesText,
         };
     }
 
