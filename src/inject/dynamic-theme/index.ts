@@ -511,6 +511,7 @@ function watchForUpdates() {
     });
 
     addDOMReadyListener(onDOMReady);
+    setupDocumentPiPFontFix();
 }
 
 function stopWatchingForUpdates() {
@@ -644,7 +645,6 @@ function tryInvertChromePDF() {
  * TODO: expose this function to API builds via src/api function enable()
  */
 export function createOrUpdateDynamicTheme(theme: Theme, dynamicThemeFixes: DynamicThemeFix[] | null, iframe: boolean): void {
-    setupDocumentPiPFontFix();
     const dynamicThemeFix = selectRelevantFix(document.location.href, dynamicThemeFixes);
 
     // Most websites will have only the generic fix applied ('*'), some will have generic fix and one site-specific fix (two in total),
@@ -810,8 +810,13 @@ function setupDocumentPiPFontFix(): void {
         return fontSheetRules.join('\n');
     }
 
-    function injectFontCSS(pipDoc: Document, fontCSS: string): void {
-        if (pipDoc.querySelector('.darkreader--font-fix')) {
+    function getPipDoc(): Document | null {
+        return (docPiP.window?.document as Document) ?? null;
+    }
+
+    function injectFontCSS(fontCSS: string): void {
+        const pipDoc = getPipDoc();
+        if (!pipDoc || pipDoc.querySelector('.darkreader--font-fix')) {
             return;
         }
         const style = pipDoc.createElement('style');
@@ -821,27 +826,38 @@ function setupDocumentPiPFontFix(): void {
         (pipDoc.head || pipDoc.documentElement).appendChild(style);
     }
 
+    function removeFontCSS(): void {
+        getPipDoc()?.querySelector('.darkreader--font-fix')?.remove();
+    }
+
     function onPiPEnter(): void {
-        const pipWindow = docPiP.window;
-        if (!pipWindow) {
+        const pipDoc = getPipDoc();
+        if (!pipDoc || pipDoc.querySelector('meta[name="darkreader-lock"]')) {
             return;
         }
         const fontCSS = collectFontSheetCSS();
         if (!fontCSS) {
             return;
         }
-        const pipDoc = pipWindow.document;
-        injectFontCSS(pipDoc, fontCSS);
+        injectFontCSS(fontCSS);
         const observer = new MutationObserver(() => {
-            injectFontCSS(pipDoc, fontCSS);
+            if (pipDoc.querySelector('meta[name="darkreader-lock"]')) {
+                observer.disconnect();
+                docPiP.removeEventListener('enter', onPiPEnter);
+                removeFontCSS();
+                return;
+            }
+            injectFontCSS(fontCSS);
         });
-        observer.observe(pipDoc, {childList: true, subtree: true});
-        pipWindow.addEventListener('unload', () => observer.disconnect());
+        observer.observe(pipDoc, {childList: true, subtree: true})
+        cleaners.push(() => observer.disconnect());
+        (docPiP.window as Window).addEventListener('unload', () => observer.disconnect());
     }
 
     docPiP.addEventListener('enter', onPiPEnter);
     cleaners.push(() => {
         docPiP.removeEventListener('enter', onPiPEnter);
+        removeFontCSS();
         pipListenerRegistered = false;
     });
 }
