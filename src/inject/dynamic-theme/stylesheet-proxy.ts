@@ -572,6 +572,10 @@ export function injectProxy(enableStyleSheetsProxy: boolean, enableCustomElement
                 cleanNode(node);
                 return;
             }
+            if (!overrideSheetsByNode.has(node)) {
+                overrideSheetsByNode.set(node, new Set());
+            }
+            overrideSheetsByNode.get(node)!.add(override);
             const overrideIndex = node.adoptedStyleSheets.indexOf(override);
             if (overrideIndex < 0) {
                 node.adoptedStyleSheets.push(override);
