@@ -19,7 +19,7 @@ import {getStyleInjectionMode, injectStyleAway, removeStyleContainer} from './in
 import {overrideInlineStyle, getInlineOverrideStyle, watchForInlineStyles, stopWatchingForInlineStyles, INLINE_STYLE_SELECTOR} from './inline-style';
 import {changeMetaThemeColorWhenAvailable, restoreMetaThemeColor} from './meta-theme-color';
 import {modifyBackgroundColor, modifyBorderColor, modifyForegroundColor} from './modify-colors';
-import {getModifiedUserAgentStyle, getModifiedFallbackStyle, cleanModificationCache, getSelectionColor} from './modify-css';
+import {getModifiedUserAgentStyle, getModifiedFallbackStyle, cleanModificationCache, getSelectionColor, setFilterSelectorHandler} from './modify-css';
 import {clearColorPalette, getColorPalette, registerVariablesSheet, releaseVariablesSheet} from './palette';
 import type {StyleElement, StyleManager} from './style-manager';
 import {manageStyle, getManageableStyles, cleanLoadingLinks, setIgnoredCSSURLs} from './style-manager';
@@ -100,22 +100,69 @@ function injectStaticStyle(style: HTMLStyleElement, prevNode: Node | null, watch
     }
 }
 
+const invertSelectors = new Set<string>();
+const dimSelectors = new Set<string>();
+const lightSelectors = new Set<string>();
+
+setFilterSelectorHandler((selector, type) => {
+    if (!selector) {
+        return;
+    }
+    const bucket = type === 'invert' ? invertSelectors
+        : type === 'dim' ? dimSelectors
+            : lightSelectors;
+    if (bucket.has(selector)) {
+        return;
+    }
+    bucket.add(selector);
+    const invertStyle = document.head?.querySelector<HTMLStyleElement>('.darkreader--invert');
+    if (invertStyle) {
+        setInversionStyleValue(invertStyle);
+    }
+});
+
 function setInversionStyleValue(invertStyle: HTMLStyleElement) {
-    if (fixes && Array.isArray(fixes.invert) && fixes.invert.length > 0) {
-        const filter = getCSSFilterValue({
-            ...theme!,
-            contrast: theme!.mode === 0 ? theme!.contrast : clamp(theme!.contrast - 10, 0, 100),
-        });
-        if (filter) {
-            invertStyle.textContent = [
-                `${fixes.invert.join(', ')} {`,
-                `    filter: ${filter} !important;`,
-                '}',
-            ].join('\n');
+    if (!theme) {
+        return;
+    }
+
+    const rules: string[] = [];
+
+    const appendRule = (selectors: string[], filter: string | null) => {
+        if (!filter || selectors.length === 0) {
             return;
         }
+        rules.push([
+            `${selectors.join(', ')} {`,
+            `    filter: ${filter} !important;`,
+            '}',
+        ].join('\n'));
+    };
+
+    if (fixes && Array.isArray(fixes.invert) && fixes.invert.length > 0) {
+        appendRule(fixes.invert, getCSSFilterValue({
+            ...theme,
+            contrast: theme.mode === 0 ? theme.contrast : clamp(theme.contrast - 10, 0, 100),
+        }));
     }
-    invertStyle.textContent = '';
+    if (invertSelectors.size > 0) {
+        appendRule([...invertSelectors], getCSSFilterValue({
+            ...theme,
+            sepia: clamp(theme.sepia + 10, 0, 100),
+        }));
+    }
+    if (dimSelectors.size > 0) {
+        appendRule([...dimSelectors], getCSSFilterValue(theme));
+    }
+    if (lightSelectors.size > 0) {
+        appendRule([...lightSelectors], getCSSFilterValue({
+            ...theme,
+            brightness: clamp(theme.brightness - 10, 5, 200),
+            sepia: clamp(theme.sepia + 10, 0, 100),
+        }));
+    }
+
+    invertStyle.textContent = rules.join('\n');
 }
 
 function createStaticStyleOverrides() {
@@ -909,6 +956,9 @@ export function removeDynamicTheme(): void {
 export function cleanDynamicThemeCache(): void {
     variablesStore.clear();
     parsedURLCache.clear();
+    invertSelectors.clear();
+    dimSelectors.clear();
+    lightSelectors.clear();
     removeDocumentVisibilityListener();
     cancelRendering();
     stopWatchingForUpdates();
