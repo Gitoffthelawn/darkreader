@@ -387,11 +387,14 @@ export class VariablesStore {
     private watchFilterVars(sourceValue: string, selector: string) {
         const directRefs = new Set<string>();
         iterateVarDependencies(sourceValue, (v) => directRefs.add(v));
-        this.pushFilterSelectorsForValue(sourceValue, selector);
+        const allRefs = new Set<string>();
         directRefs.forEach((v) => {
-            const callback = () => this.pushFilterSelectorsForValue(sourceValue, selector);
-            this.subscribeForVarTypeChange(v, callback);
+            allRefs.add(v);
+            this.iterateVarRefs(v, (ref) => allRefs.add(ref));
         });
+        this.pushFilterSelectorsForValue(sourceValue, selector);
+        const callback = () => this.pushFilterSelectorsForValue(sourceValue, selector);
+        allRefs.forEach((v) => this.subscribeForVarTypeChange(v, callback));
     }
 
     private collectVariablesAndVarDep() {
