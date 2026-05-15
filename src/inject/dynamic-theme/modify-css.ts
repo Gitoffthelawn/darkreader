@@ -11,7 +11,7 @@ import {logWarn, logInfo} from '../utils/log';
 
 import {cssURLRegex, getCSSURLValue, getCSSBaseBath} from './css-rules';
 import type {ImageDetails} from './image';
-import {getImageDetails, cleanImageProcessingCache, requestBlobURLCheck, isBlobURLCheckResultReady, tryConvertDataURLToBlobURL} from './image';
+import {getImageDetails, getFilteredImageURL, cleanImageProcessingCache, requestBlobURLCheck, isBlobURLCheckResultReady, tryConvertDataURLToBlobURL} from './image';
 import {modifyBackgroundColor, modifyBorderColor, modifyForegroundColor, modifyGradientColor, modifyShadowColor, clearColorModificationCache} from './modify-colors';
 import {getSheetScope} from './style-scope';
 import type {CSSVariableModifier, VariablesStore} from './variables';
@@ -44,6 +44,17 @@ export interface ModifiableCSSRule {
 
 function getPriority(ruleStyle: CSSStyleDeclaration, property: string) {
     return Boolean(ruleStyle && ruleStyle.getPropertyPriority(property));
+}
+
+function canFilterImage(url: string): boolean {
+    if (url.startsWith('data:')) {
+        return true;
+    }
+    try {
+        return new URL(url).origin === location.origin;
+    } catch {
+        return false;
+    }
 }
 
 const bgPropsToCopy = [
@@ -574,13 +585,28 @@ export function getBgImageModifier(
                 result = 'none';
             } else if (isDark && isTransparent && theme.mode === 1 && width > 2) {
                 logInfo(`Inverting dark image ${logSrc}`);
-                pushFilter?.('invert');
+                if (canFilterImage(imageDetails.src)) {
+                    const inverted = getFilteredImageURL(imageDetails, {...theme, sepia: clamp(theme.sepia + 10, 0, 100)});
+                    result = `url("${inverted}")`;
+                } else {
+                    pushFilter?.('invert');
+                }
             } else if (isLight && !isTransparent && theme.mode === 1) {
                 logInfo(`Dimming light image ${logSrc}`);
-                pushFilter?.('dim');
+                if (canFilterImage(imageDetails.src)) {
+                    const dimmed = getFilteredImageURL(imageDetails, theme);
+                    result = `url("${dimmed}")`;
+                } else {
+                    pushFilter?.('dim');
+                }
             } else if (theme.mode === 0 && isLight && imageDetails.dataURL) {
                 logInfo(`Applying filter to image ${logSrc}`);
-                pushFilter?.('light');
+                if (canFilterImage(imageDetails.src)) {
+                    const filtered = getFilteredImageURL(imageDetails, {...theme, brightness: clamp(theme.brightness - 10, 5, 200), sepia: clamp(theme.sepia + 10, 0, 100)});
+                    result = `url("${filtered}")`;
+                } else {
+                    pushFilter?.('light');
+                }
             } else {
                 logInfo(`Not modifying the image ${logSrc}`);
             }
