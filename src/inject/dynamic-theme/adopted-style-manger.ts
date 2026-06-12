@@ -1,8 +1,9 @@
 import type {Theme} from '../../definitions';
+import {forEach} from '../../utils/array';
+import {isFirefox} from '../../utils/platform';
 
 import {iterateCSSRules} from './css-rules';
 import {defineSheetScope} from './style-scope';
-import type {CSSBuilder} from './stylesheet-modifier';
 import {createStyleSheetModifier} from './stylesheet-modifier';
 
 let canUseSheetProxy = false;
@@ -21,11 +22,22 @@ export function canHaveAdoptedStyleSheets(node: Document | ShadowRoot): boolean 
     return Array.isArray(node.adoptedStyleSheets);
 }
 
+const getAdoptedSheets: (node: Document | ShadowRoot) => CSSStyleSheet[] = isFirefox ?
+    (node) => (node.adoptedStyleSheets as any).wrappedJSObject ?? node.adoptedStyleSheets :
+    (node) => node.adoptedStyleSheets;
+
+const createOverrideSheet: () => CSSStyleSheet = isFirefox ?
+    () => {
+        const pageWindow: any = (window as any).wrappedJSObject ?? window;
+        return new pageWindow.CSSStyleSheet();
+    } :
+    () => new CSSStyleSheet();
+
 export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): AdoptedStyleSheetManager {
     let cancelAsyncOperations = false;
 
     function iterateSourceSheets(iterator: (sheet: CSSStyleSheet) => void) {
-        node.adoptedStyleSheets.forEach((sheet) => {
+        forEach(getAdoptedSheets(node), (sheet) => {
             if (!overrides.has(sheet)) {
                 iterator(sheet);
             }
@@ -34,25 +46,27 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
     }
 
     function injectSheet(sheet: CSSStyleSheet, override: CSSStyleSheet) {
-        const newSheets = [...node.adoptedStyleSheets];
+        const newSheets = isFirefox ? getAdoptedSheets(node) : [...node.adoptedStyleSheets];
         const sheetIndex = newSheets.indexOf(sheet);
         const overrideIndex = newSheets.indexOf(override);
         if (overrideIndex >= 0) {
             newSheets.splice(overrideIndex, 1);
         }
         newSheets.splice(sheetIndex + 1, 0, override);
-        node.adoptedStyleSheets = newSheets;
+        if (!isFirefox) {
+            node.adoptedStyleSheets = newSheets;
+        }
     }
 
     function clear() {
-        const newSheets = [...node.adoptedStyleSheets];
+        const newSheets = isFirefox ? getAdoptedSheets(node) : [...node.adoptedStyleSheets];
         for (let i = newSheets.length - 1; i >= 0; i--) {
             const sheet = newSheets[i];
             if (overrides.has(sheet)) {
                 newSheets.splice(i, 1);
             }
         }
-        if (node.adoptedStyleSheets.length !== newSheets.length) {
+        if (!isFirefox && node.adoptedStyleSheets.length !== newSheets.length) {
             node.adoptedStyleSheets = newSheets;
         }
         sourceSheets = new WeakSet();
@@ -82,7 +96,7 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
         if (count === 1) {
             // MS Copilot issue, where there is an empty `:root {}` style at the beginning.
             // Counting all the rules for all the shadow DOM elements can be expensive.
-            const rule = node.adoptedStyleSheets[0].cssRules[0];
+            const rule = getAdoptedSheets(node)[0].cssRules[0];
             return rule instanceof CSSStyleRule ? rule.style.length : count;
         }
         return count;
@@ -94,8 +108,9 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
     function render(theme: Theme, ignoreImageAnalysis: string[]) {
         clear();
 
-        for (let i = node.adoptedStyleSheets.length - 1; i >= 0; i--) {
-            const sheet = node.adoptedStyleSheets[i];
+        const sheets = getAdoptedSheets(node);
+        for (let i = sheets.length - 1; i >= 0; i--) {
+            const sheet = sheets[i];
             if (overrides.has(sheet)) {
                 continue;
             }
@@ -109,7 +124,7 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
             }
 
             const rules = sheet.cssRules;
-            const override = new CSSStyleSheet();
+            const override = createOverrideSheet();
             overridesBySource.set(sheet, override);
             iterateCSSRules(rules, (rule) => sourceDeclarations.add(rule.style));
 
@@ -146,7 +161,7 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
         callbackRequested = true;
         queueMicrotask(() => {
             callbackRequested = false;
-            const sheets = node.adoptedStyleSheets.filter((s) => !overrides.has(s));
+            const sheets = getAdoptedSheets(node).filter((s) => !overrides.has(s));
             sheets.forEach((sheet) => overridesBySource.delete(sheet));
             callback(sheets);
         });
@@ -195,187 +210,4 @@ export function createAdoptedStyleSheetOverride(node: Document | ShadowRoot): Ad
         destroy,
         watch,
     };
-}
-
-export interface AdoptedStyleSheetFirefoxManager {
-    render(sheets: CSSStyleSheet[], theme: Theme, ignoreImageAnalysis: string[]): void;
-    destroy(): void;
-}
-
-export function createAdoptedStyleSheetOverrideFirefox(node: Document | ShadowRoot): AdoptedStyleSheetFirefoxManager {
-    let cancelAsyncOperations = false;
-
-    const overridesBySource = new Map<CSSStyleSheet, CSSStyleSheet>();
-    const overrideSheets = new WeakSet<CSSStyleSheet>();
-
-    function injectSheet(override: CSSStyleSheet) {
-        if (!node.adoptedStyleSheets.includes(override)) {
-            node.adoptedStyleSheets = [...node.adoptedStyleSheets, override];
-        }
-    }
-
-    function render(sheets: CSSStyleSheet[], theme: Theme, ignoreImageAnalysis: string[]) {
-        sheets.forEach((sheet) => {
-            let override = overridesBySource.get(sheet);
-            if (!override) {
-                override = new CSSStyleSheet();
-                overridesBySource.set(sheet, override);
-                overrideSheets.add(override);
-            }
-            const target = override;
-
-            const prepareSheet = () => {
-                for (let i = target.cssRules.length - 1; i >= 0; i--) {
-                    target.deleteRule(i);
-                }
-                target.insertRule('#__darkreader__adoptedOverride {}');
-                injectSheet(target);
-                return target;
-            };
-
-            const sheetModifier = createStyleSheetModifier();
-            sheetModifier.modifySheet({
-                prepareSheet,
-                sourceCSSRules: sheet.cssRules,
-                theme,
-                ignoreImageAnalysis,
-                force: false,
-                isAsyncCancelled: () => cancelAsyncOperations,
-            });
-        });
-    }
-
-    function destroy() {
-        cancelAsyncOperations = true;
-        if (Array.isArray(node.adoptedStyleSheets)) {
-            const newSheets = node.adoptedStyleSheets.filter((s) => !overrideSheets.has(s));
-            if (newSheets.length !== node.adoptedStyleSheets.length) {
-                node.adoptedStyleSheets = newSheets;
-            }
-        }
-        overridesBySource.clear();
-    }
-
-    return {render, destroy};
-}
-
-export interface AdoptedStyleSheetFallback {
-    render(options: {
-        theme: Theme;
-        ignoreImageAnalysis: string[];
-        cssRules: CSSRule[] | CSSRuleList;
-    }): void;
-    commands(): DeepStyleSheetCommand[];
-    destroy(): void;
-}
-
-interface StyleSheetInsertCommand {
-    type: 'insert';
-    index: number;
-    cssText: string;
-}
-
-interface StyleSheetDeleteCommand {
-    type: 'delete';
-    index: number;
-}
-
-interface StyleSheetReplaceCommand {
-    type: 'replace';
-    cssText: string;
-}
-
-type StyleSheetCommand = StyleSheetInsertCommand | StyleSheetDeleteCommand | StyleSheetReplaceCommand;
-
-interface DeepStyleSheetCommand {
-    type: 'insert' | 'delete' | 'replace';
-    path: number[];
-    cssText?: string;
-}
-
-class StyleSheetCommandBuilder implements CSSBuilder {
-    cssRules: StyleSheetCommandBuilder[] = [];
-
-    private commands: StyleSheetCommand[] = [];
-
-    insertRule(cssText: string, index = 0): number {
-        this.commands.push({type: 'insert', index, cssText});
-        this.cssRules.splice(index, 0, new StyleSheetCommandBuilder());
-        return index;
-    }
-
-    deleteRule(index: number): void {
-        this.commands.push({type: 'delete', index});
-        this.cssRules.splice(index, 1);
-    }
-
-    replaceSync(cssText: string) {
-        this.commands.splice(0);
-        this.commands.push({type: 'replace', cssText});
-        if (cssText === '') {
-            this.cssRules.splice(0);
-        } else {
-            throw new Error('StyleSheetCommandBuilder.replaceSync() is not fully supported');
-        }
-    }
-
-    getDeepCSSCommands() {
-        const deep: DeepStyleSheetCommand[] = [];
-        this.commands.forEach((command) => {
-            deep.push({
-                type: command.type,
-                cssText: command.type !== 'delete' ? command.cssText : '',
-                path: command.type === 'replace' ? [] : [command.index],
-            });
-        });
-        this.cssRules.forEach((rule, i) => {
-            const childCommands = rule.getDeepCSSCommands();
-            childCommands.forEach((c) => c.path.unshift(i));
-        });
-        return deep;
-    }
-
-    clearDeepCSSCommands() {
-        this.commands.splice(0);
-        this.cssRules.forEach((rule) => rule.clearDeepCSSCommands());
-    }
-}
-
-export function createAdoptedStyleSheetFallback(): AdoptedStyleSheetFallback {
-    let cancelAsyncOperations = false;
-
-    const builder = new StyleSheetCommandBuilder();
-
-    function render(options: {
-        theme: Theme;
-        ignoreImageAnalysis: string[];
-        cssRules: CSSRuleList | CSSRule[];
-    }) {
-        const prepareSheet = () => {
-            builder.replaceSync('');
-            return builder;
-        };
-
-        const sheetModifier = createStyleSheetModifier();
-        sheetModifier.modifySheet({
-            prepareSheet,
-            sourceCSSRules: options.cssRules,
-            theme: options.theme,
-            ignoreImageAnalysis: options.ignoreImageAnalysis,
-            force: false,
-            isAsyncCancelled: () => cancelAsyncOperations,
-        });
-    }
-
-    function commands() {
-        const commands = builder.getDeepCSSCommands();
-        builder.clearDeepCSSCommands();
-        return commands;
-    }
-
-    function destroy() {
-        cancelAsyncOperations = true;
-    }
-
-    return {render, destroy, commands};
 }
