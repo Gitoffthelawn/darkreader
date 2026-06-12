@@ -12,8 +12,8 @@ import {setDocumentVisibilityListener, documentIsVisible, removeDocumentVisibili
 import {removeNode, watchForNodePosition, iterateShadowHosts, isDOMReady, removeDOMReadyListener, cleanReadyStateCompleteListeners, addDOMReadyListener, setIsDOMReady} from '../utils/dom';
 import {logInfo, logWarn} from '../utils/log';
 
-import type {AdoptedStyleSheetManager, AdoptedStyleSheetFirefoxManager} from './adopted-style-manger';
-import {createAdoptedStyleSheetOverride, createAdoptedStyleSheetOverrideFirefox, canHaveAdoptedStyleSheets} from './adopted-style-manger';
+import type {AdoptedStyleSheetManager} from './adopted-style-manger';
+import {createAdoptedStyleSheetOverride, canHaveAdoptedStyleSheets} from './adopted-style-manger';
 import {combineFixes, findRelevantFix} from './fixes';
 import {getStyleInjectionMode, injectStyleAway, removeStyleContainer} from './injection';
 import {overrideInlineStyle, getInlineOverrideStyle, watchForInlineStyles, stopWatchingForInlineStyles, INLINE_STYLE_SELECTOR} from './inline-style';
@@ -35,7 +35,6 @@ declare const __CHROMIUM_MV3__: boolean;
 const INSTANCE_ID = generateUID();
 const styleManagers = new Map<StyleElement, StyleManager>();
 const adoptedStyleManagers: AdoptedStyleSheetManager[] = [];
-const adoptedStyleFirefoxManagers = new Map<Document | ShadowRoot, AdoptedStyleSheetFirefoxManager>();
 let theme: Theme | null = null;
 let fixes: DynamicThemeFix | null = null;
 let isIFrame: boolean | null = null;
@@ -375,33 +374,6 @@ function createDynamicStyleOverrides() {
     variablesStore.matchVariablesAndDependents();
 
     tryInvertChromePDF();
-
-    if (isFirefox) {
-        type NodeSheet = {
-            sheetId: number;
-            sheet: CSSStyleSheet;
-        };
-
-        const onAdoptedCssChange = (e: CustomEvent) => {
-            const {nodes, sheets} = e.detail;
-            if (!Array.isArray(nodes) || !Array.isArray(sheets) || nodes.length === 0 || sheets.length === 0) {
-                return;
-            }
-            const sourceSheets: CSSStyleSheet[] = sheets.map(({sheet}: NodeSheet) => sheet);
-            sourceSheets.forEach((sheet) => {
-                variablesStore.addRulesForMatching(sheet.cssRules);
-            });
-            variablesStore.matchVariablesAndDependents();
-            nodes.forEach((node: Document | ShadowRoot) => {
-                getAdoptedStyleFirefoxManager(node).render(sourceSheets, theme!, ignoredImageAnalysisSelectors!);
-            });
-        };
-
-        document.addEventListener('__darkreader__adoptedStyleSheetsChange', onAdoptedCssChange as EventListener);
-        cleaners.push(() => document.removeEventListener('__darkreader__adoptedStyleSheetsChange', onAdoptedCssChange as EventListener));
-
-        document.dispatchEvent(new CustomEvent('__darkreader__startAdoptedStyleSheetsWatcher'));
-    }
 }
 
 let loadingStylesCounter = 0;
@@ -493,13 +465,13 @@ function createThemeAndWatchForUpdates() {
     changeMetaThemeColorWhenAvailable(theme!);
 }
 
-function handleAdoptedStyleSheets(node: ShadowRoot | Document) {
-    if (isFirefox) {
-        return;
-    }
+function unwrap<T>(value: T): T {
+    return (value as any)?.wrappedJSObject ?? value;
+}
 
+function handleAdoptedStyleSheets(node: ShadowRoot | Document) {
     if (canHaveAdoptedStyleSheets(node)) {
-        node.adoptedStyleSheets.forEach((s) => {
+        forEach(isFirefox ? unwrap(node.adoptedStyleSheets) : node.adoptedStyleSheets, (s) => {
             variablesStore.addRulesForMatching(s.cssRules);
         });
         const newManger = createAdoptedStyleSheetOverride(node);
@@ -513,15 +485,6 @@ function handleAdoptedStyleSheets(node: ShadowRoot | Document) {
             newManger.render(theme!, ignoredImageAnalysisSelectors);
         });
     }
-}
-
-function getAdoptedStyleFirefoxManager(node: Document | ShadowRoot) {
-    let manager = adoptedStyleFirefoxManagers.get(node);
-    if (!manager) {
-        manager = createAdoptedStyleSheetOverrideFirefox(node);
-        adoptedStyleFirefoxManagers.set(node, manager);
-    }
-    return manager;
 }
 
 function watchForUpdates() {
@@ -956,8 +919,6 @@ export function removeDynamicTheme(): void {
 
     adoptedStyleManagers.forEach((manager) => manager.destroy());
     adoptedStyleManagers.splice(0);
-    adoptedStyleFirefoxManagers.forEach((manager) => manager.destroy());
-    adoptedStyleFirefoxManagers.clear();
 
     metaObserver && metaObserver.disconnect();
     scheduleInversionStyleUpdate.cancel();
