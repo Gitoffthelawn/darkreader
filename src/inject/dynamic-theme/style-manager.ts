@@ -105,7 +105,7 @@ export function getManageableStyles(node: Node | null, results: StyleElement[] =
         );
         if (
             deep && (
-                (node as Element).children?.length > 0 || 
+                (node as Element).children?.length > 0 ||
                 (node as Element).shadowRoot
             )
         ) {
@@ -140,7 +140,6 @@ export function manageStyle(element: StyleElement, {update, loadingStart, loadin
         syncStyle = prevStyles.find((el) => el.matches('.darkreader--sync') && !syncStyleSet.has(el)) || null;
     }
 
-    let corsCopyPositionWatcher: ReturnType<typeof watchForNodePosition> | null = null;
     let syncStylePositionWatcher: ReturnType<typeof watchForNodePosition> | null = null;
 
     let cancelAsyncOperations = false;
@@ -487,7 +486,6 @@ export function manageStyle(element: StyleElement, {update, loadingStart, loadin
     function pause() {
         observer.disconnect();
         cancelAsyncOperations = true;
-        corsCopyPositionWatcher && corsCopyPositionWatcher.stop();
         syncStylePositionWatcher && syncStylePositionWatcher.stop();
         sheetChangeWatcher.stop();
     }
@@ -527,7 +525,6 @@ export function manageStyle(element: StyleElement, {update, loadingStart, loadin
 
         logWarn('Restore style', syncStyle, element);
         insertStyle();
-        corsCopyPositionWatcher && corsCopyPositionWatcher.skip();
         syncStylePositionWatcher && syncStylePositionWatcher.skip();
         if (!isOverrideEmpty) {
             forceRenderStyle = true;
