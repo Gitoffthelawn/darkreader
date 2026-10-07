@@ -2,9 +2,17 @@ import {isFirefox} from './platform';
 
 declare const __TEST__: boolean;
 
+declare global {
+    interface RequestInit {
+        targetAddressSpace?: string;
+    }
+}
+
 async function getOKResponse(url: string, mimeType?: string, origin?: string): Promise<Response> {
-    const credentials = origin && url.startsWith(`${origin}/`) ? undefined : 'omit';
+    const sameOrigin = origin && url.startsWith(`${origin}/`);
+    const credentials = sameOrigin ? undefined : 'omit';
     const redirect = mimeType === 'text/css' ? undefined : 'error';
+    const targetAddressSpace = __TEST__ || sameOrigin ? undefined : 'public';
     const response = await fetch(
         url,
         {
@@ -12,6 +20,7 @@ async function getOKResponse(url: string, mimeType?: string, origin?: string): P
             credentials,
             referrer: origin,
             redirect,
+            targetAddressSpace,
         },
     );
 
@@ -36,13 +45,13 @@ async function getOKResponse(url: string, mimeType?: string, origin?: string): P
     return response;
 }
 
-export async function loadAsDataURL(url: string, mimeType?: string): Promise<string> {
-    const response = await getOKResponse(url, mimeType);
+export async function loadAsDataURL(url: string, mimeType?: string, origin?: string): Promise<string> {
+    const response = await getOKResponse(url, mimeType, origin);
     return await readResponseAsDataURL(response);
 }
 
-export async function loadAsBlob(url: string, mimeType?: string): Promise<Blob> {
-    const response = await getOKResponse(url, mimeType);
+export async function loadAsBlob(url: string, mimeType?: string, origin?: string): Promise<Blob> {
+    const response = await getOKResponse(url, mimeType, origin);
     return await response.blob();
 }
 
@@ -64,7 +73,7 @@ export async function loadAsText(url: string, mimeType?: string, origin?: string
 
 const MAX_CORS_HOSTS = 16;
 const corsHosts = new Set<string>();
-const checkedHosts = new Set<string>();
+const checkedOrigins = new Set<string>();
 const localAliases = [
     '127-0-0-1.org.uk',
     '42foo.com',
@@ -119,7 +128,7 @@ export function shouldIgnoreCors(url: URL) {
     if (!corsHosts.has(host)) {
         corsHosts.add(host);
     }
-    if (checkedHosts.has(host)) {
+    if (checkedOrigins.has(url.origin)) {
         return false;
     }
     if (
@@ -132,6 +141,6 @@ export function shouldIgnoreCors(url: URL) {
     ) {
         return true;
     }
-    checkedHosts.add(host);
+    checkedOrigins.add(url.origin);
     return false;
 }
