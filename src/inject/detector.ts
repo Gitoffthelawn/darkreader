@@ -82,9 +82,13 @@ function hasBuiltInDarkTheme() {
 function runCheck(callback: (hasDarkTheme: boolean) => void) {
     const colorSchemeMeta = document.querySelector(COLOR_SCHEME_META_SELECTOR) as HTMLMetaElement;
     if (colorSchemeMeta) {
-        const isMetaDark = colorSchemeMeta.content === 'dark' || (colorSchemeMeta.content.includes('dark') && isSystemDarkModeEnabled());
-        callback(isMetaDark);
-        return;
+        const content = colorSchemeMeta.content.toLocaleLowerCase();
+        const isStrictlyDark = content === 'dark' || content === 'only dark';
+        const isStrictlyLight = content === 'light' || content === 'only light';
+        if (isStrictlyDark || isStrictlyLight) {
+            callback(isStrictlyDark);
+            return;
+        }
     }
 
     if (
@@ -131,8 +135,8 @@ let readyStateListener: (() => void) | null;
 function canCheckForStyle() {
     if (!(
         document.body &&
-        document.body.scrollHeight > 0 &&
-        document.body.clientHeight > 0 &&
+        document.body.scrollHeight >= 32 &&
+        document.body.clientHeight >= 32 &&
         document.body.childElementCount > 0 &&
         hasSomeStyle()
     )) {
