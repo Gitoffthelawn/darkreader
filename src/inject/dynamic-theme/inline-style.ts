@@ -5,6 +5,7 @@ import {throttle} from '../../utils/throttle';
 import {getDuration} from '../../utils/time';
 import {getAbsoluteURL} from '../../utils/url';
 import {iterateShadowHosts, createOptimizedTreeObserver, isReadyStateComplete, addReadyStateCompleteListener, addDOMReadyListener, isDOMReady} from '../utils/dom';
+import {logWarn} from '../utils/log';
 
 import {iterateCSSDeclarations} from './css-rules';
 import {getImageDetails} from './image';
@@ -280,6 +281,7 @@ export function stopWatchingForInlineStyles(): void {
     treeObservers.clear();
     attrObservers.clear();
     inlineStringValueCache.clear();
+    resetInlineStyleLoopDetection();
 }
 
 const inlineStyleCache = new WeakMap<HTMLElement, string>();
@@ -318,7 +320,9 @@ function getThemeKey(theme: Theme): string {
 }
 
 function getInlineStyleCacheKey(el: HTMLElement, theme: Theme): string {
-    const attrKey = INLINE_STYLE_ATTRS.map((attr) => `${attr}="${el.getAttribute(attr)}"`);
+    const attrKey = INLINE_STYLE_ATTRS
+        .filter((attr) => el.hasAttribute(attr))
+        .map((attr) => `${attr}="${el.getAttribute(attr)}"`);
     return `${attrKey} ${getThemeKey(theme)}`;
 }
 
@@ -331,11 +335,6 @@ function shouldIgnoreInlineStyle(element: HTMLElement, selectors: string[]): boo
     }
     return false;
 }
-
-const LOOP_DETECTION_THRESHOLD = 1000;
-const MAX_LOOP_CYCLES = 10;
-const elementsLastChanges = new WeakMap<Node, number>();
-const elementsLoopCycles = new WeakMap<Node, number>();
 
 const SMALL_SVG_THRESHOLD = 32;
 const svgNodesRoots = new WeakMap<Node, SVGSVGElement | null>();
@@ -362,17 +361,51 @@ function getSVGElementRoot(svgElement: SVGElement): SVGSVGElement | null {
 
 const inlineStringValueCache = new Map<string, Map<string, string>>();
 
-export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreInlineSelectors: string[], ignoreImageSelectors: string[]): void {
-    if (elementsLastChanges.has(element)) {
-        if (Date.now() - elementsLastChanges.get(element)! < LOOP_DETECTION_THRESHOLD) {
-            const cycles = elementsLoopCycles.get(element) ?? 0;
-            elementsLoopCycles.set(element, cycles + 1);
-        } else {
-            elementsLoopCycles.delete(element);
-        }
-        if ((elementsLoopCycles.get(element) ?? 0) >= MAX_LOOP_CYCLES) {
+const MAX_LOOP_TEARDOWNS = 10;
+const inlineStyleParents = new Map<HTMLElement, Node>();
+let parentTeardownCounts = new WeakMap<Node, number>();
+
+function trackInlineStyleTeardown(element: HTMLElement): void {
+    const parent = element.parentNode;
+    if (!parent) {
+        return;
+    }
+    if (inlineStyleParents.size === 0) {
+        queueMicrotask(checkForTeardown);
+    }
+    inlineStyleParents.set(element, parent);
+}
+
+function checkForTeardown() {
+    inlineStyleParents.forEach((parent, element) => {
+        if (element.isConnected || !parent.isConnected) {
             return;
         }
+        const count = (parentTeardownCounts.get(parent) ?? 0) + 1;
+        parentTeardownCounts.set(parent, count);
+        if (count === MAX_LOOP_TEARDOWNS) {
+            logWarn('Inline style change causes DOM teardown. Suspending changes for the container', parent);
+        }
+    });
+    inlineStyleParents.clear();
+}
+
+function parentHadTeardown(element: HTMLElement): boolean {
+    const parent = element.parentNode;
+    if (!parent) {
+        return true;
+    }
+    return (parentTeardownCounts.get(parent) ?? 0) >= MAX_LOOP_TEARDOWNS;
+}
+
+function resetInlineStyleLoopDetection() {
+    inlineStyleParents.clear();
+    parentTeardownCounts = new WeakMap();
+}
+
+export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreInlineSelectors: string[], ignoreImageSelectors: string[]): void {
+    if (parentHadTeardown(element)) {
+        return;
     }
 
     // ProseMirror editor rebuilds entire HTML after style changes
@@ -413,6 +446,7 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
             if (!element.hasAttribute(dataAttr)) {
                 element.setAttribute(dataAttr, '');
             }
+            trackInlineStyleTeardown(element);
             unsetProps.delete(targetCSSProp);
         }
 
@@ -626,6 +660,4 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
         element.removeAttribute(overrides[cssProp].dataAttr);
     });
     inlineStyleCache.set(element, getInlineStyleCacheKey(element, theme));
-
-    elementsLastChanges.set(element, Date.now());
 }
