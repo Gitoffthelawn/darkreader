@@ -279,7 +279,7 @@ export function createStyleSheetModifier(): StyleSheetModifier {
                 const initialIndex = readyDeclarations.length;
                 let oldDecs: ReadyDeclaration[] = [];
                 if (varDecs.length === 0) {
-                    const tempDec = {property, value: sourceValue, important, sourceValue, varKey};
+                    const tempDec = {property: `--darkreader-placeholder-${varKey}`, value: 'none', important: false, sourceValue, varKey};
                     readyDeclarations.push(tempDec);
                     oldDecs = [tempDec];
                 }
