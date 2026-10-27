@@ -9,7 +9,7 @@ export class StateManager<T extends Record<string, unknown>> {
     private localStorageKey: string;
     private parent: any;
     private defaults: T;
-    private logWarn: (log: string) => void;
+    private logWarn: (...args: any[]) => void;
     private storage: Storage | null;
 
     private loaded = false;
@@ -17,7 +17,7 @@ export class StateManager<T extends Record<string, unknown>> {
     private saving: Promise<void> | null = null;
     private saveRequested = false;
 
-    constructor(localStorageKey: string, parent: any, defaults: T, logWarn: (log: string) => void, storage: Storage | null = isNonPersistent ? chrome.storage.session : null){
+    constructor(localStorageKey: string, parent: any, defaults: T, logWarn: (...args: any[]) => void, storage: Storage | null = isNonPersistent ? chrome.storage.session : null){
         this.localStorageKey = localStorageKey;
         this.parent = parent;
         this.defaults = defaults;
@@ -60,7 +60,13 @@ export class StateManager<T extends Record<string, unknown>> {
         }
         this.saveRequested = true;
         if (!this.saving) {
-            this.saving = this.runSaves();
+            try {
+                this.saving = this.runSaves();
+                await this.saving;
+            } catch (err) {
+                this.logWarn('StateManager.saveState error', err);
+            }
+            this.saving = null;
         }
         await this.saving;
     }
@@ -75,6 +81,5 @@ export class StateManager<T extends Record<string, unknown>> {
                 }, () => resolve());
             });
         }
-        this.saving = null;
     }
 }
