@@ -56,6 +56,55 @@ describe('INLINE STYLES', () => {
         expect(getComputedStyle(span).backgroundColor).toBe('rgb(102, 102, 102)');
     });
 
+    it('should override the bgcolor attribute', () => {
+        container.innerHTML = '<table><tr><td bgcolor="red">Cell with bgcolor</td></tr></table>';
+        createOrUpdateDynamicTheme(theme, null, false);
+        const td = container.querySelector('td')!;
+        expect(getComputedStyle(td).backgroundColor).not.toBe('rgb(255, 0, 0)');
+        if (!__PLUS__) {
+            expect(td.hasAttribute('data-darkreader-inline-bgcolor')).toBe(true);
+            expect(td.style.getPropertyValue('--darkreader-inline-bgcolor')).not.toBe('');
+        }
+    });
+
+    it('should override inline style with unformatted values', () => {
+        container.innerHTML = '<span style="color:rgb(255,0,0,.87)">Unformatted inline style</span>';
+        createOrUpdateDynamicTheme(theme, null, false);
+        const span = container.querySelector('span')!;
+        expect(getComputedStyle(span).color).toBe('rgba(255, 26, 26, 0.87)');
+    });
+
+    it('should override inline value regardless of its position', () => {
+        container.innerHTML = [
+            '<span id="mid" style="font-size:10px;color:rgb(255,0,0,.87)">mid</span>',
+            '<span id="start" style="color:rgb(255,0,0,.87)">start</span>',
+        ].join('\n');
+        createOrUpdateDynamicTheme(theme, null, false);
+        expect(getComputedStyle(container.querySelector('#mid')!).color).toBe('rgba(255, 26, 26, 0.87)');
+        expect(getComputedStyle(container.querySelector('#start')!).color).toBe('rgba(255, 26, 26, 0.87)');
+    });
+
+    it('should override inline shorthand properties', () => {
+        container.innerHTML = '<span style="border-color: red; border-style: solid; border-width: 1px">inline border shorthand</span>';
+        createOrUpdateDynamicTheme(theme, null, false);
+        const span = container.querySelector('span')!;
+        expect(getComputedStyle(span).borderTopColor).toBe('rgb(179, 0, 0)');
+        expect(getComputedStyle(span).borderBottomColor).toBe('rgb(179, 0, 0)');
+        expect(getComputedStyle(span).borderLeftColor).toBe('rgb(179, 0, 0)');
+        expect(getComputedStyle(span).borderRightColor).toBe('rgb(179, 0, 0)');
+    });
+
+    it('should override inline styles after disabling and enabling', () => {
+        container.innerHTML = '<span style="color: red;">Toggle inline style</span>';
+        createOrUpdateDynamicTheme(theme, null, false);
+        const span = container.querySelector('span')!;
+        expect(getComputedStyle(span).color).toBe('rgb(255, 26, 26)');
+
+        removeDynamicTheme();
+        createOrUpdateDynamicTheme(theme, null, false);
+        expect(getComputedStyle(span).color).toBe('rgb(255, 26, 26)');
+    });
+
     it('should clean up the customProp after originial is gone', async () => {
         container.innerHTML = '<span style="color: red;">Watch inline style</span>';
         createOrUpdateDynamicTheme(theme, null, false);
