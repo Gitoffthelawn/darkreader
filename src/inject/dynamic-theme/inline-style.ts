@@ -283,12 +283,15 @@ export function stopWatchingForInlineStyles(): void {
     treeObservers.clear();
     attrObservers.clear();
     inlineStringValueCache.clear();
+    inlineStyleCache = new WeakMap();
+    svgInversionCache = new WeakSet();
+    svgAnalysisConditionCache = new WeakMap();
     resetInlineStyleLoopDetection();
 }
 
-const inlineStyleCache = new WeakMap<HTMLElement, string>();
-const svgInversionCache = new WeakSet<SVGSVGElement>();
-const svgAnalysisConditionCache = new WeakMap<SVGSVGElement, boolean>();
+let inlineStyleCache = new WeakMap<HTMLElement, string>();
+let svgInversionCache = new WeakSet<SVGSVGElement>();
+let svgAnalysisConditionCache = new WeakMap<SVGSVGElement, boolean>();
 const themeProps: Array<keyof Theme> = ['brightness', 'contrast', 'grayscale', 'sepia', 'mode'];
 
 function shouldAnalyzeSVGAsImage(svg: SVGSVGElement) {
@@ -423,6 +426,7 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
     const unsetProps = new Set(Object.keys(overrides));
 
     function overrideValue(sourceAttr: string, sourceCSSProp: string, modifierCSSProp: string, srcVal: string, cssVal: string) {
+        const targetCSSProp = modifierCSSProp;
         const cachedStringValue = inlineStringValueCache.get(modifierCSSProp)?.get(cssVal);
         if (cachedStringValue) {
             setStaticValue(cachedStringValue);
@@ -448,7 +452,6 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
                 return;
             }
 
-            const targetCSSProp = sourceAttr === 'style' ? sourceCSSProp : sourceAttr;
             const {customProp, dataAttr} = overrides[targetCSSProp] ?? shorthandOverrides[targetCSSProp];
             element.style.setProperty(customProp, value);
             if (!element.hasAttribute(dataAttr)) {
@@ -482,7 +485,6 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
         }
 
         function setAsyncValue(promise: Promise<string | null>, sourceValue: string) {
-            const targetCSSProp = sourceCSSProp;
             promise.then((value) => {
                 if (value && targetCSSProp === 'background' && value.startsWith('var(--darkreader-bg--')) {
                     setStaticValue(value);
