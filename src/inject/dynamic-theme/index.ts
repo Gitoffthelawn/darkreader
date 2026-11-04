@@ -4,7 +4,7 @@ import {createTextStyle} from '../../generators/text-style';
 import {forEach, push, toArray} from '../../utils/array';
 import {clearColorCache, getSRGBLightness, parseColorWithCache} from '../../utils/color';
 import {clamp} from '../../utils/math';
-import {isChromium, isEdge, isFirefox, isMobile} from '../../utils/platform';
+import {isChromium, isEdge, isFirefox, isMobile, isLayerRuleSupported} from '../../utils/platform';
 import {throttle} from '../../utils/throttle';
 import {generateUID} from '../../utils/uid';
 import {parsedURLCache} from '../../utils/url';
@@ -40,7 +40,7 @@ const INSTANCE_ID = generateUID();
 const styleManagers = new Map<StyleElement, StyleManager>();
 const adoptedStyleManagers: AdoptedStyleSheetManager[] = [];
 let theme: Theme | null = null;
-let fixes: DynamicThemeFix | null = null;
+let fixes: Partial<DynamicThemeFix> | null = null;
 let isIFrame: boolean | null = null;
 let ignoredImageAnalysisSelectors: string[] = [];
 let ignoredInlineSelectors: string[] = [];
@@ -279,6 +279,14 @@ function getInversionStyleValue(): string {
 function createStaticStyleOverrides() {
     if (!staticStyleInjector) {
         staticStyleInjector = createStaticStyleInjector();
+    }
+
+    if (isLayerRuleSupported) {
+        const layersStyle = createOrUpdateStyle('darkreader-layers', document);
+        layersStyle.textContent = '@layer darkreader';
+        if (document.head.firstChild !== layersStyle) {
+            document.head.insertBefore(layersStyle, document.head.firstChild);
+        }
     }
 
     staticStyleInjector.begin();
@@ -787,14 +795,14 @@ export function createOrUpdateDynamicTheme(theme: Theme, dynamicThemeFixes: Dyna
 }
 
 let prevTheme: Theme | null = null;
-let prevFixes: DynamicThemeFix | null = null;
+let prevFixes: Partial<DynamicThemeFix> | null = null;
 
 /**
  * Note: This function should be directly used only in API builds, it is exported by this fle
  * only for use in src/api/enable() for backwards compatibility,
  * extension should use only createOrUpdateDynamicTheme()
  */
-export function createOrUpdateDynamicThemeInternal(themeConfig: Theme, dynamicThemeFixes: DynamicThemeFix | null, iframe: boolean): void {
+export function createOrUpdateDynamicThemeInternal(themeConfig: Theme, dynamicThemeFixes: Partial<DynamicThemeFix> | null, iframe: boolean): void {
     theme = themeConfig;
     fixes = dynamicThemeFixes;
 
