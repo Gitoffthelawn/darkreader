@@ -139,4 +139,35 @@ describe('INLINE STYLES', () => {
         const rect = container.querySelector('rect')!;
         expect(getComputedStyle(rect).fill).toBe('rgb(255, 26, 26)');
     });
+
+    it('should override fill attribute', () => {
+        container.innerHTML = `<svg><text fill="black">SVG text fill</text></svg>`;
+        createOrUpdateDynamicTheme(theme, null, false);
+        const text = container.querySelector('text')!;
+        expect(getComputedStyle(text).fill).toBe('rgb(255, 255, 255)');
+    });
+
+    it('should override stroke attribute', () => {
+        container.innerHTML = `<svg><line x1="0" y1="0" x2="10" y2="10" stroke="black" /></svg>`;
+        createOrUpdateDynamicTheme(theme, null, false);
+        const line = container.querySelector('line')!;
+        expect(getComputedStyle(line).stroke).toBe('rgb(128, 128, 128)');
+    });
+
+    it('should override stop-color attribute', () => {
+        container.innerHTML = `<svg><defs><linearGradient><stop offset="0%" stop-color="white" /></linearGradient></defs></svg>`;
+        createOrUpdateDynamicTheme(theme, null, false);
+        const stop = container.querySelector('stop')!;
+        expect(getComputedStyle(stop).stopColor).toBe('rgb(0, 0, 0)');
+    });
+
+    it('should resolve variable type in SVG stroke attribute', () => {
+        container.innerHTML = multiline(
+            '<style>:root { --accent: red; }</style>',
+            '<svg><path d="M0,0 L10,10" stroke="var(--accent)" fill="none" /></svg>',
+        );
+        createOrUpdateDynamicTheme(theme, null, false);
+        const path = container.querySelector('path')!;
+        expect(getComputedStyle(path).stroke).toBe('rgb(255, 26, 26)');
+    });
 });
