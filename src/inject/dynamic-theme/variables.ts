@@ -32,6 +32,7 @@ export class VariablesStore {
     private varTypes = new Map<string, number>();
     private rulesQueue = new Set<CSSRuleList | CSSRule[]>();
     private inlineStyleQueue: CSSStyleDeclaration[] = [];
+    private varDependantQueue: Array<{property: string; value: string}> = [];
     private definedVars = new Set<string>();
     private varRefs = new Map<string, Set<string>>();
     private unknownColorVars = new Set<string>();
@@ -50,6 +51,7 @@ export class VariablesStore {
         this.varTypes.clear();
         this.rulesQueue.clear();
         this.inlineStyleQueue.splice(0);
+        this.varDependantQueue.splice(0);
         this.definedVars.clear();
         this.varRefs.clear();
         this.unknownColorVars.clear();
@@ -78,8 +80,16 @@ export class VariablesStore {
         this.inlineStyleQueue.push(style);
     }
 
+    addVarDependantForMatching(property: string, value: string): void {
+        this.varDependantQueue.push({property, value});
+    }
+
     matchVariablesAndDependents(): void {
-        if (this.rulesQueue.size === 0 && this.inlineStyleQueue.length === 0) {
+        if (
+            this.rulesQueue.size === 0 &&
+            this.inlineStyleQueue.length === 0 &&
+            this.varDependantQueue.length === 0
+        ) {
             return;
         }
         this.changedTypeVars.clear();
@@ -294,7 +304,7 @@ export class VariablesStore {
         if (property === 'background' || property === 'background-image' || property === 'box-shadow') {
             return (theme) => {
                 const unknownVars = new Set<string>();
-                const modify = () => {
+                const modify = (wrapUnknownVars = false) => {
                     const variableReplaced = replaceCSSVariablesNames(
                         sourceValue,
                         (v) => {
@@ -305,7 +315,7 @@ export class VariablesStore {
                                 return wrapBgImgVariableName(v);
                             }
                             unknownVars.add(v);
-                            return v;
+                            return wrapUnknownVars ? wrapBgColorVariableName(v) : v;
                         },
                         (fallback) => tryModifyBgColor(fallback, theme),
                     );
@@ -323,9 +333,8 @@ export class VariablesStore {
                 const modified = modify();
                 if (unknownVars.size > 0) {
                     // web.dev and voice.google.com issue where the variable is never defined, but the fallback is.
-                    // TODO: Return a fallback value along with a way to subscribe for a change.
                     if (isFallbackResolved(modified)) {
-                        return modified;
+                        return modify(true);
                     }
                     return new Promise<string>((resolve) => {
                         for (const unknownVar of unknownVars.values()) {
@@ -426,8 +435,12 @@ export class VariablesStore {
         this.inlineStyleQueue.forEach((style) => {
             this.collectVarsFromCSSDeclarations(style);
         });
+        this.varDependantQueue.forEach(({property, value}) => {
+            this.inspectVarDependant(property, value);
+        });
         this.rulesQueue.clear();
         this.inlineStyleQueue.splice(0);
+        this.varDependantQueue.splice(0);
     }
 
     private collectVarsFromCSSDeclarations(style: CSSStyleDeclaration) {
